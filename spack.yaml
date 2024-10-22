@@ -1,0 +1,33 @@
+spack:
+  specs:
+    - python@3.14
+    - cmake@3.21.0
+    - protobuf
+  view: true
+  concretizer:
+    unify: when_possible
+  packages:
+    all:
+      compiler: [gcc@11.4.0]
+    python:
+      buildable: false
+      externals:
+        - spec: python@3.14
+          prefix: /u/zanef2/cpython/install_dir
+  mirrors:
+    v0.20.1: https://binaries.spack.io/v0.20.1
+  compilers:
+  - compiler:
+      spec: gcc@=11.4.0
+      paths:
+        cc: /sw/spack/deltas11-2023-03/apps/linux-rhel8-x86_64/gcc-8.5.0/gcc-11.4.0-yycklku/bin/gcc
+        cxx: /sw/spack/deltas11-2023-03/apps/linux-rhel8-x86_64/gcc-8.5.0/gcc-11.4.0-yycklku/bin/g++
+        f77: /sw/spack/deltas11-2023-03/apps/linux-rhel8-x86_64/gcc-8.5.0/gcc-11.4.0-yycklku/bin/gfortran
+        fc: /sw/spack/deltas11-2023-03/apps/linux-rhel8-x86_64/gcc-8.5.0/gcc-11.4.0-yycklku/bin/gfortran
+      flags: {}
+      operating_system: rhel8
+      target: x86_64
+      modules: []
+      environment: {}
+      extra_rpaths: []
+
