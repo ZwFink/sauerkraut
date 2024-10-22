@@ -1,6 +1,7 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 #include <stdbool.h>
+extern "C" {
 
 typedef union _PyStackRef {
     uintptr_t bits;
@@ -355,4 +356,6 @@ static struct PyModuleDef mymodule = {
 
 PyMODINIT_FUNC PyInit_mymodule(void) {
     return PyModule_Create(&mymodule);
+}
+
 }
