@@ -19,6 +19,7 @@ target_include_directories(mymodule PRIVATE
     ${Python_INCLUDE_DIRS}
     ${Protobuf_INCLUDE_DIRS}
 )
+add_subdirectory(buffer)
 
 # Link necessary libraries
 target_link_libraries(mymodule
