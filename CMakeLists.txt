@@ -1,5 +1,7 @@
-cmake_minimum_required(VERSION 3.14)
-project(MyModule CXX)
+cmake_minimum_required(VERSION 3.15...3.30)
+project(migrames VERSION 0.1
+        DESCRIPTION "Migratable Python Frames" 
+        LANGUAGES CXX)
 
 # Set the C++ standard
 set(CMAKE_CXX_STANDARD 14)
@@ -18,35 +20,7 @@ find_package(Protobuf REQUIRED)
 # Include directories (your source directory)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
-# Source files
-set(SOURCES
-    migrames/mymodule.c
-)
 
-# Ensure the .c file is treated as C++ code
-set_source_files_properties(migrames/mymodule.c PROPERTIES LANGUAGE CXX)
+include_directories(${ProtobufIncludePath})
+add_subdirectory(migrames)
 
-# Create the shared library (Python module)
-add_library(mymodule SHARED ${SOURCES})
-
-# Set the output properties to match Python module naming conventions
-set_target_properties(mymodule PROPERTIES
-    OUTPUT_NAME "mymodule"
-    PREFIX ""
-)
-
-# Include directories for the target
-target_include_directories(mymodule PRIVATE
-    ${Python_INCLUDE_DIRS}
-    ${Protobuf_INCLUDE_DIRS}
-)
-
-# Link necessary libraries
-target_link_libraries(mymodule
-    Python::Python
-    ${Protobuf_LIBRARIES}
-    pthread
-    m
-    util
-    dl
-)
