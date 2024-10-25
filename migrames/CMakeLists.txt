@@ -12,13 +12,15 @@ set_target_properties(migrames PROPERTIES
     CXX_VISIBILITY_PRESET default
     VISIBILITY_INLINES_HIDDEN OFF
 )
+set(FlatBuffersIncludePath ${FLATBUFFER_INCLUDE_DIRS})
 # Include directories for the target
 target_include_directories(migrames PRIVATE
-    ${Python_INCLUDE_DIRS}
-    ${Protobuf_INCLUDE_DIRS}
-)
+    ${FlatBuffersIncludePath}
+    ${FLATBUFFER_GENERATED_HEADERS}
+    )
 add_subdirectory(buffer)
 
+add_dependencies(migrames generate_flatbuffers)
 # Link necessary libraries
 target_link_libraries(migrames
     Python::Python
@@ -27,7 +29,6 @@ target_link_libraries(migrames
     m
     util
     dl
-    messages
 )
 
 # shared library shoudl go to the build directory

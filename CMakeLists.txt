@@ -15,12 +15,12 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -g -Wall")
 find_package(Python 3.14 COMPONENTS Interpreter Development REQUIRED)
 
 # Find Protobuf
-find_package(Protobuf REQUIRED)
+find_package(FlatBuffers REQUIRED)
 
 # Include directories (your source directory)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 
-include_directories(${ProtobufIncludePath})
+include_directories(${FlatBuffersIncludePath})
 add_subdirectory(migrames)
 

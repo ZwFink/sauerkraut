@@ -1,7 +1,25 @@
-file(GLOB ProtoFiles "${CMAKE_CURRENT_SOURCE_DIR}/*.proto")
-PROTOBUF_GENERATE_CPP(ProtoSources ProtoHeaders ${ProtoFiles})
-add_library(messages STATIC ${ProtoSources} ${ProtoHeaders})
-set_target_properties(messages PROPERTIES 
-    POSITION_INDEPENDENT_CODE ON)
-target_include_directories(messages PUBLIC ${CMAKE_CURRENT_BINARY_DIR} ${PROTOBUF_INCLUDE_DIRS})
-target_link_libraries(messages ${PROTOBUF_LIBRARY})
+# Find Flatbuffers package
+find_package(Flatbuffers REQUIRED)
+
+# Get all .fbs files
+file(GLOB FlatbufFiles "${CMAKE_CURRENT_SOURCE_DIR}/*.fbs")
+
+# Create a custom command to generate C++ headers from Flatbuffer schemas
+set(FLATBUFFER_GENERATED_HEADERS "")
+foreach(FlatbufFile ${FlatbufFiles})
+    get_filename_component(BASENAME ${FlatbufFile} NAME_WE)
+    set(GENERATED_HEADER "${CMAKE_CURRENT_BINARY_DIR}/${BASENAME}_generated.h")
+    add_custom_command(
+        OUTPUT ${GENERATED_HEADER}
+        COMMAND flatc
+        ARGS --cpp -o "${CMAKE_CURRENT_BINARY_DIR}" ${FlatbufFile}
+        DEPENDS ${FlatbufFile}
+        COMMENT "Generating C++ header for ${BASENAME}"
+    )
+    list(APPEND FLATBUFFER_GENERATED_HEADERS ${GENERATED_HEADER})
+endforeach()
+
+message(STATUS "Flatbuffers generated headers: ${FLATBUFFER_GENERATED_HEADERS}")
+# Create a custom target for generation
+add_custom_target(generate_flatbuffers DEPENDS ${FLATBUFFER_GENERATED_HEADERS})
+target_include_directories(migrames PUBLIC ${CMAKE_CURRENT_BINARY_DIR} ${FLATBUFFER_INCLUDE_DIRS})
