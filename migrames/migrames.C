@@ -1,6 +1,60 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 #include <stdbool.h>
+#include "pyobject.pb.h"
+
+template <typename T>
+class py_strongref {
+    T *obj;
+    public:
+    py_strongref(T *obj) : obj(obj) {
+        Py_INCREF((PyObject*) obj);
+    }
+
+    py_strongref() : obj(NULL) {}
+    py_strongref(const py_strongref &other) : obj(other.obj) {
+        Py_INCREF((PyObject*) obj);
+    }
+
+    ~py_strongref() {
+        Py_XDECREF((PyObject*) obj);
+    }
+
+    PyObject *operator*() {
+        return this->borrow();
+    }
+
+    PyObject *borrow() {
+        return (PyObject*) obj;
+    }
+
+    void operator=(PyObject *new_obj) {
+        // always steals
+        obj = new_obj;
+    }
+};
+
+using pyobject_strongref = py_strongref<PyObject>;
+
+class migrames_modulestate {
+    public:
+        pyobject_strongref deepcopy;
+        pyobject_strongref deepcopy_module;
+        pyobject_strongref pickle_module;
+        pyobject_strongref pickle_dumps;
+        pyobject_strongref pickle_loads;
+        migrames_modulestate() {
+            deepcopy_module = PyImport_ImportModule("copy");
+            deepcopy = PyObject_GetAttrString(*deepcopy_module, "deepcopy");
+            pickle_module = PyImport_ImportModule("pickle");
+            pickle_dumps = PyObject_GetAttrString(*pickle_module, "dumps");
+            pickle_loads = PyObject_GetAttrString(*pickle_module, "loads");
+        }
+
+};
+
+static migrames_modulestate *migrames_state;
+
 extern "C" {
 
 typedef union _PyStackRef {
@@ -138,6 +192,11 @@ void print_object_type_name(PyObject *obj) {
 PyAPI_FUNC(PyFrameObject *) PyFrame_New(PyThreadState *, PyCodeObject *,
                                         PyObject *, PyObject *);
 
+typedef struct serialized_obj {
+    char *data;
+    size_t size;
+} serialized_obj;
+
 PyObject *GetFrameLocalsFromFrame(PyObject *frame) {
     PyFrameObject *current_frame = (PyFrameObject *)frame;
 
@@ -145,6 +204,7 @@ PyObject *GetFrameLocalsFromFrame(PyObject *frame) {
     if (locals == NULL) {
         return NULL;
     }
+
 
     if (PyFrameLocalsProxy_Check(locals)) {
         PyObject* ret = PyDict_New();
@@ -158,12 +218,15 @@ PyObject *GetFrameLocalsFromFrame(PyObject *frame) {
             return NULL;
         }
         Py_DECREF(locals);
+
+
         return ret;
     }
 
     assert(PyMapping_Check(locals));
     return locals;
 }
+
 
 // Allocate something that's not part of Python
 _PyInterpreterFrame *AllocateFrameToMigrate(size_t size) {
@@ -174,11 +237,8 @@ PyObject *deepcopy_object(PyObject *obj) {
     if (obj == NULL) {
         return NULL;
     }
-    PyObject *copy = PyImport_ImportModule("copy");
-    PyObject *deepcopy = PyObject_GetAttrString(copy, "deepcopy");
+    PyObject *deepcopy = *migrames_state->deepcopy;
     PyObject *copy_obj = PyObject_CallFunction(deepcopy, "O", obj);
-    Py_DECREF(copy);
-    Py_DECREF(deepcopy);
     return copy_obj;
 }
 
@@ -228,7 +288,7 @@ PyFrameObject *create_copied_frame(PyThreadState *tstate, _PyInterpreterFrame *t
     }
 
     if(stack_frame == NULL) {
-        PySys_WriteStderr("<MyModule>: Could not allocate memory for new frame\n");
+        PySys_WriteStderr("<Migrames>: Could not allocate memory for new frame\n");
         return NULL;
     }
 
@@ -346,16 +406,25 @@ static PyMethodDef MyMethods[] = {
     {NULL, NULL, 0, NULL}
 };
 
-static struct PyModuleDef mymodule = {
+static void migrames_free(void *m) {
+    delete migrames_state;
+}
+
+static struct PyModuleDef migrames = {
     PyModuleDef_HEAD_INIT,
-    "mymodule",
+    "migrames",
     "A module that defines the 'abcd' function",
     -1,
-    MyMethods
+    MyMethods,
+    NULL, // slot definitions
+    NULL, // traverse function for GC
+    NULL, // clear function for GC
+    migrames_free // free function for GC
 };
 
-PyMODINIT_FUNC PyInit_mymodule(void) {
-    return PyModule_Create(&mymodule);
+PyMODINIT_FUNC PyInit_migrames(void) {
+    migrames_state = new migrames_modulestate();
+    return PyModule_Create(&migrames);
 }
 
 }

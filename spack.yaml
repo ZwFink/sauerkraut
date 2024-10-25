@@ -1,8 +1,8 @@
 spack:
   specs:
     - python@3.14
-    - cmake@3.21.0
-    - protobuf
+    - cmake
+    - flatbuffers
   view: true
   concretizer:
     unify: when_possible
