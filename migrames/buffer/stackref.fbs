@@ -1,0 +1,9 @@
+include "py_object.fbs";
+namespace pyframe_buffer;
+
+
+table PyStackref {
+  obj:PyObject;
+}
+
+root_type PyStackref;

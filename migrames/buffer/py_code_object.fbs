@@ -1,0 +1,13 @@
+include "py_object.fbs";
+include "code_unit.fbs";
+include "stackref.fbs";
+
+namespace pyframe_buffer;
+
+table PyCodeObject {
+  ob_base:PyObjectHead;
+  code:[PyCodeUnit];
+  stack:[PyStackref];
+}
+
+root_type PyCodeObject;

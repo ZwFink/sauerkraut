@@ -1,0 +1,20 @@
+include "py_object.fbs";
+include "stackref.fbs";
+include "code_unit.fbs";
+include "py_frame.fbs";
+namespace pyframe_buffer;
+
+
+table PyInterpreterFrame {
+  f_executable:PyStackref;
+  f_funcobj:PyObject;
+  f_globals:PyObject;
+  f_builtins:PyObject;
+  f_locals:PyObject;
+  frame_obj:PyFrame;
+  instr_offset:uint64;
+  owner:uint32;
+  locals_plus:[PyStackref];
+}
+
+root_type PyInterpreterFrame;
