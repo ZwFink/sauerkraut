@@ -1,0 +1,9 @@
+edition = "2023";
+
+package pyframe_buffer;
+
+message py_code_object {
+    py_object_head ob_base = 1;
+    repeated py_code_unit code = 2;
+    repeated py_stackref stack = 3;
+}

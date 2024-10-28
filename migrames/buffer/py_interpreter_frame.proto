@@ -1,0 +1,21 @@
+edition = "2023";
+package pyframe_buffer;
+
+import "py_object.proto";
+import "stackref.proto";
+import "code_unit.proto";
+import "py_frame.proto";
+
+message py_interpreter_frame {
+    // this might need to be changed to a code object
+    py_stackref f_executable = 1;
+    py_object f_funcobj = 2;
+    py_object f_globals = 3;
+    py_object f_builtins = 4;
+    py_object f_locals = 5;
+    py_frame frame_obj = 6;
+    // offset of the current instruction in the code object
+    uint64 instr_offset = 7;
+    uint32 owner = 8;
+    repeated py_stackref locals_plus = 9;
+}

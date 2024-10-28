@@ -1,0 +1,12 @@
+edition = "2023";
+package pyframe_buffer;
+
+import "py_object.proto";
+import "stackref.proto";
+import "code_unit.proto";
+
+message py_frame {
+    py_object_head ob_base = 1;
+    repeated py_code_unit code = 2;
+    repeated py_stackref stack = 3;
+}

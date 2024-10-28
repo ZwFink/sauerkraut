@@ -1,0 +1,8 @@
+edition = "2023";
+
+package pyframe_buffer;
+import "py_object.proto";
+
+message py_stackref {
+    py_object obj = 1;
+}

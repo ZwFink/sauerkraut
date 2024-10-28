@@ -1,0 +1,8 @@
+edition = "2023";
+
+package pyframe_buffer;
+
+message py_code_unit {
+    uint32 opcode = 1;
+    uint32 oparg = 2;
+}

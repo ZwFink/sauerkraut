@@ -1,0 +1,11 @@
+edition = "2023";
+
+package pyframe_buffer;
+
+message py_object {
+  bytes data = 1;
+}
+
+message py_object_head {
+  py_object ob_base = 1;
+}
