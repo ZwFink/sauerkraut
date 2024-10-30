@@ -1,0 +1,8 @@
+namespace pyframe_buffer;
+
+table PyCodeUnit {
+  opcode:uint32;
+  oparg:uint32;
+}
+
+root_type PyCodeUnit;

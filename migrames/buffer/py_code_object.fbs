@@ -1,0 +1,51 @@
+include "py_object.fbs";
+include "code_unit.fbs";
+include "stackref.fbs";
+
+namespace pyframe_buffer;
+
+table PyCodeObject {
+  // this matches the definition for PyCodeObject in Python's code.h
+  ob_base:PyVarObjectHead;
+  co_consts:PyObject;
+  co_names:PyObject;
+  co_exceptiontable:PyObject;
+  
+  co_flags:int32;
+
+  co_argcount:int32;
+  co_posonlyargcount:int32;
+  co_kwonlyargcount:int32;
+  co_stacksize:int32;
+  co_firstlineno:int32;
+
+  co_nlocalsplus:int32;
+  co_framesize:int32;
+  co_nlocals:int32;
+  co_ncellvars:int32;
+  co_nfreevars:int32;
+  co_version:uint32;
+
+  co_localsplusnames:PyObject;
+  co_localspluskinds:PyObject;
+
+  co_filename:PyObject;
+  co_name:PyObject;
+  co_qualname:PyObject;
+  co_linetable:PyObject;
+  co_weakreflist:PyObject;
+
+  // NOTE: The following are pulled from code.h, skipping for now
+  // _PyExecutorArray *co_executors;
+  // _PyCoCached *_co_cached;
+  // uintptr_t _co_instrumentation_version;
+  // _PyCoMonitoringData *_co_monitoring;
+  // int _co_firsttraceable;
+  // void *co_extra;
+
+  co_code_adaptive:[PyCodeUnit];
+
+
+}
+
+root_type PyCodeObject;

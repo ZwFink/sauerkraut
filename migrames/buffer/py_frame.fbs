@@ -1,0 +1,23 @@
+include "py_object.fbs";
+include "stackref.fbs";
+include "code_unit.fbs";
+namespace pyframe_buffer;
+
+
+table PyFrame {
+  ob_base:PyObjectHead;
+  // SKIPPED: PyFrameObject *f_back;
+  // SKIPPED: struct _PyInterpreterFrame *f_frame;
+  f_trace:PyObject;
+  f_lineno:int32;
+  f_trace_lines:int8;
+  f_trace_opcodes:int8;
+  f_extra_locals:PyObject;
+  f_locals_cache:PyObject;
+  // Skip the locally-allocated frame data.
+  // This will be occupied (I think) when
+  // owner == FRAME_OWNED_BY_FRAME_OBJECT
+  // SKIPPED: PyObject *_f_frame_data[1]
+}
+
+root_type PyFrame;

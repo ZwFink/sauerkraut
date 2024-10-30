@@ -1,0 +1,25 @@
+include "py_object.fbs";
+include "stackref.fbs";
+include "code_unit.fbs";
+include "py_frame.fbs";
+include "py_code_object.fbs";
+namespace pyframe_buffer;
+
+
+table PyInterpreterFrame {
+  f_executable:PyCodeObject;
+  // SKIPPED: struct _PyInterpreterFrame *previous;
+  f_funcobj:PyObject;
+  f_globals:PyObject;
+  f_builtins:PyObject;
+  f_locals:PyObject;
+  frame_obj:PyFrame;
+  // instead of instruction pointer, store the offset from base
+  instr_offset:uint64;
+  // SKIPPED: _PyStackRef *stackpointer;
+  return_offset:uint16;
+  owner:uint8;
+  locals_plus:[PyStackref];
+}
+
+root_type PyInterpreterFrame;
