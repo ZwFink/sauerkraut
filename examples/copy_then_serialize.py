@@ -1,5 +1,6 @@
 import migrames
 import sys
+from io import BytesIO
 calls = 0
 
 def do_run_frame(frm):
@@ -27,7 +28,12 @@ def fun1(c):
         return x
 
 frm = fun1(13)
-migrames.serialize_frame(frm)
+serframe = migrames.serialize_frame(frm)
+with open('serialized_frame', 'wb') as f:
+    f.write(serframe)
+with open('serialized_frame', 'rb') as f:
+    read_frame = f.read()
+migrames.deserialize_frame(read_frame)
 
 
 
