@@ -41,8 +41,16 @@ namespace serdes {
             }
 
             auto deserialize(const pyframe_buffer::PyObject *obj) -> decltype(loads(nullptr)) {
+                if(NULL == obj) {
+                    return NULL;
+                }
+
                 auto data = obj->data()->data();
                 auto size = obj->data()->size();
+
+                if(NULL == data) {
+                    return NULL;
+                }
                 PyObject *bytes = PyBytes_FromStringAndSize((const char*)data, size);
                 return loads(bytes);
             }
@@ -100,6 +108,39 @@ namespace serdes {
                 size_t size = obj->ob_size();
                 return {py_obj, size};
             }
+    };
+
+    class DeserializedCodeObject {
+      public:
+        pyobject_strongref co_consts{NULL};
+        pyobject_strongref co_names{NULL};
+        pyobject_strongref co_exceptiontable{NULL};
+
+        int co_flags;
+
+        int co_argcount;
+        int co_posonlyargcount;
+        int co_kwonlyargcount;
+        int co_stacksize;
+        int co_firstlineno;
+
+        int co_nlocalsplus;
+        int co_framesize;
+        int co_nlocals;
+        int co_ncellvars;
+        int co_nfreevars;
+        int co_version;
+
+        pyobject_strongref co_localsplusnames{NULL};
+        pyobject_strongref co_localspluskinds{NULL};
+
+        pyobject_strongref co_filename{NULL};
+        pyobject_strongref co_name{NULL};
+        pyobject_strongref co_qualname{NULL};
+        pyobject_strongref co_linetable{NULL};
+        pyobject_strongref co_weakreflist{NULL};
+
+        std::vector<unsigned char> co_code_adaptive;
     };
 
     template <typename PyCodeObjectSerializer>
@@ -206,15 +247,68 @@ namespace serdes {
 
             return code_builder.Finish();
         }
+
+        DeserializedCodeObject deserialize(const pyframe_buffer::PyCodeObject *obj) {
+            DeserializedCodeObject deser;
+            deser.co_consts = po_serializer.deserialize(obj->co_consts());
+            deser.co_names = po_serializer.deserialize(obj->co_names());
+            deser.co_exceptiontable = po_serializer.deserialize(obj->co_exceptiontable());
+
+            deser.co_flags = obj->co_flags();
+
+            deser.co_argcount = obj->co_argcount();
+            deser.co_posonlyargcount = obj->co_posonlyargcount();
+            deser.co_kwonlyargcount = obj->co_kwonlyargcount();
+            deser.co_stacksize = obj->co_stacksize();
+            deser.co_firstlineno = obj->co_firstlineno();
+
+            deser.co_nlocalsplus = obj->co_nlocalsplus();
+            deser.co_framesize = obj->co_framesize();
+            deser.co_nlocals = obj->co_nlocals();
+            deser.co_ncellvars = obj->co_ncellvars();
+            deser.co_nfreevars = obj->co_nfreevars();
+            deser.co_version = obj->co_version();
+
+            deser.co_localsplusnames = po_serializer.deserialize(obj->co_localsplusnames());
+            deser.co_localspluskinds = po_serializer.deserialize(obj->co_localspluskinds());
+
+            deser.co_filename = po_serializer.deserialize(obj->co_filename());
+            deser.co_name = po_serializer.deserialize(obj->co_name());
+            deser.co_qualname = po_serializer.deserialize(obj->co_qualname());
+            deser.co_linetable = po_serializer.deserialize(obj->co_linetable());
+            deser.co_weakreflist = po_serializer.deserialize(obj->co_weakreflist());
+
+            auto bitcode = obj->co_code_adaptive();
+            deser.co_code_adaptive = std::vector<unsigned char>(bitcode->begin(), bitcode->end());
+
+            return deser;
+        }
     };
 
     template<typename PyCodeObjectSerializer>
     PyVarObjectHeadSerdes(PyCodeObjectSerializer&) -> PyVarObjectHeadSerdes<PyCodeObjectSerializer>;
 
-    template<typename PyCodeObjectSerializer>
+    class DeserializedPyInterpreterFrame {
+      public:
+        DeserializedCodeObject f_executable;
+        pyobject_strongref f_funcobj;
+        pyobject_strongref f_globals;
+        pyobject_strongref f_builtins;
+        pyobject_strongref f_locals;
+
+        uint64_t instr_offset;
+        uint16_t return_offset;
+
+        uint8_t owner;
+
+        std::vector<pyobject_strongref> localsplus;
+
+    };
+
+    template<typename PyObjectSerializer>
     class PyInterpreterFrameSerdes {
-        PyCodeObjectSerializer po_serializer;
-        PyCodeObjectSerdes<PyCodeObjectSerializer> code_serializer;
+        PyObjectSerializer po_serializer;
+        PyCodeObjectSerdes<PyObjectSerializer> code_serializer;
 
         template<typename Builder>
         flatbuffers::Offset<flatbuffers::Vector<offsets::PyObjectOffset>> serialize_fast_locals_plus(Builder &builder, migrames::PyInterpreterFrame &obj) {
@@ -239,7 +333,7 @@ namespace serdes {
         }
 
         public:
-        PyInterpreterFrameSerdes(PyCodeObjectSerializer& po_serializer) : 
+        PyInterpreterFrameSerdes(PyObjectSerializer& po_serializer) : 
             po_serializer(po_serializer),
             code_serializer(po_serializer) {}
 
@@ -262,6 +356,7 @@ namespace serdes {
                 frame_builder.add_f_locals(f_locals_ser.value());
             }
 
+            frame_builder.add_f_funcobj(f_func_obj_ser);
             frame_builder.add_instr_offset(utils::py::get_instr_offset(obj.frame_obj));
             frame_builder.add_return_offset(obj.return_offset);
             frame_builder.add_owner(obj.owner);
@@ -270,38 +365,62 @@ namespace serdes {
             return frame_builder.Finish();
 
         }
+
+        DeserializedPyInterpreterFrame deserialize(const pyframe_buffer::PyInterpreterFrame *obj) {
+            DeserializedPyInterpreterFrame deser;
+            deser.f_executable = code_serializer.deserialize(obj->f_executable());
+            deser.f_funcobj = po_serializer.deserialize(obj->f_funcobj());
+            deser.f_globals = po_serializer.deserialize(obj->f_globals());
+            deser.f_builtins = po_serializer.deserialize(obj->f_builtins());
+            deser.f_locals = po_serializer.deserialize(obj->f_locals());
+
+            deser.instr_offset = obj->instr_offset();
+            deser.return_offset = obj->return_offset();
+            deser.owner = obj->owner();
+
+            auto localsplus = obj->locals_plus();
+            deser.localsplus.reserve(localsplus->size());
+            for(auto local : *localsplus) {
+                deser.localsplus.push_back(po_serializer.deserialize(local));
+            }
+
+            return deser;
+        }
     };
 
-    template<typename PyCodeObjectSerializer>
-    PyInterpreterFrameSerdes(PyCodeObjectSerializer&) -> PyInterpreterFrameSerdes<PyCodeObjectSerializer>;
+    template<typename PyObjectSerializer>
+    PyInterpreterFrameSerdes(PyObjectSerializer&) -> PyInterpreterFrameSerdes<PyObjectSerializer>;
 
-    template<typename PyCodeObjectSerializer>
+    class DeserializedPyFrame {
+      public:
+        DeserializedPyInterpreterFrame f_frame;
+        pyobject_strongref f_trace;
+        int f_lineno;
+        char f_trace_lines;
+        char f_trace_opcodes;
+        pyobject_strongref f_extra_locals;
+        pyobject_strongref f_locals_cache;
+    };
+
+    template<typename PyObjectSerializer>
     class PyFrameSerdes {
-        PyCodeObjectSerializer po_serializer;
-        PyObjectHeadSerdes<PyCodeObjectSerializer> poh_serializer;
+        PyObjectSerializer po_serializer;
+        PyObjectHeadSerdes<PyObjectSerializer> poh_serializer;
         public:
-            PyFrameSerdes(PyCodeObjectSerializer& po_serializer) : 
+            PyFrameSerdes(PyObjectSerializer& po_serializer) : 
                           po_serializer(po_serializer),
                           poh_serializer(po_serializer) {}
 
-            struct PyFrame {
-                // pyobject_strongref obj_head;
-                pyobject_strongref f_trace;
-                int f_lineno;
-                char f_trace_lines;
-                char f_trace_opcodes;
-                pyobject_strongref f_extra_locals;
-                pyobject_strongref f_locals_cache;
-            };
-
             template<typename Builder>
-            offsets::PyFrameOffset serialize(Builder &builder, struct _frame &obj) {
+            offsets::PyFrameOffset serialize(Builder &builder, migrames::PyFrame &obj) {
                 PyInterpreterFrameSerdes interpreter_frame_serializer(po_serializer);
                 auto interp_frame_offset = interpreter_frame_serializer.serialize(builder, *obj.f_frame);
 
                 pyframe_buffer::PyFrameBuilder frame_builder(builder);
                 // Do NOT serialize the ob_base.
                 // frame_builder.add_ob_base(poh_serializer.serialize(builder, &obj.ob_base));
+
+                frame_builder.add_f_frame(interp_frame_offset);
                 
                 // TODO: These need to be changed to serialize BEFORE
                 // creating the frame_builder.
@@ -328,34 +447,28 @@ namespace serdes {
                 return frame_builder.Finish();
             }
 
-            PyFrame deserialize(const pyframe_buffer::PyFrame *obj) {
+            DeserializedPyFrame deserialize(const pyframe_buffer::PyFrame *obj) {
                 // auto ob_base_deser = poh_serializer.deserialize(obj->ob_base());
-                pyobject_strongref f_trace_deser;
+                DeserializedPyFrame deser;
+                PyInterpreterFrameSerdes interpreter_frame_serializer(po_serializer);
 
+                deser.f_frame = interpreter_frame_serializer.deserialize(obj->f_frame());
 
-                if(NULL != obj->f_trace()) {
-                    f_trace_deser = po_serializer.deserialize(obj->f_trace());
-                }
+                deser.f_trace = po_serializer.deserialize(obj->f_trace());
 
-                auto f_lineno = obj->f_lineno();
-                auto f_trace_lines = obj->f_trace_lines();
-                auto f_trace_opcodes = obj->f_trace_opcodes();
+                deser.f_lineno = obj->f_lineno();
+                deser.f_trace_lines = obj->f_trace_lines();
+                deser.f_trace_opcodes = obj->f_trace_opcodes();
 
-                pyobject_strongref f_extra_locals_deser;
-                if(NULL != obj->f_extra_locals()) {
-                    f_extra_locals_deser = po_serializer.deserialize(obj->f_extra_locals());
-                }
+                deser.f_extra_locals = po_serializer.deserialize(obj->f_extra_locals());
 
-                pyobject_strongref f_locals_cache_deser;
-                if(NULL != obj->f_locals_cache()) {
-                    f_locals_cache_deser = po_serializer.deserialize(obj->f_locals_cache());
-                }
-            return {f_trace_deser, f_lineno, f_trace_lines, f_trace_opcodes, f_extra_locals_deser, f_locals_cache_deser};
+                deser.f_locals_cache = po_serializer.deserialize(obj->f_locals_cache());
+            return deser;
             }
     };
 
-    template<typename PyCodeObjectSerializer>
-    PyFrameSerdes(PyCodeObjectSerializer&) -> PyFrameSerdes<PyCodeObjectSerializer>;
+    template<typename PyObjectSerializer>
+    PyFrameSerdes(PyObjectSerializer&) -> PyFrameSerdes<PyObjectSerializer>;
     
 }
 

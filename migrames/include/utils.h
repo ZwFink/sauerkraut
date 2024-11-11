@@ -36,6 +36,63 @@ namespace utils {
         Py_ssize_t get_offset_for_skipping_call() {
             return 5 * sizeof(_CodeUnit);
         }
+
+        void print_object(PyObject *obj) {
+            if (obj == NULL) {
+                printf("Error: NULL object passed\n");
+                return;
+            }
+        
+            PyObject *str = PyObject_Repr(obj);
+            if (str == NULL) {
+                PyErr_Print();
+                return;
+            }
+        
+            const char *c_str = PyUnicode_AsUTF8(str);
+            if (c_str == NULL) {
+                Py_DECREF(str);
+                PyErr_Print();
+                return;
+            }
+        
+            printf("Object contents: %s\n", c_str);
+            Py_DECREF(str);
+        }
+        
+        void print_object_type_name(PyObject *obj) {
+            if (obj == NULL) {
+                printf("Error: NULL object\n");
+                return;
+            }
+        
+            PyObject *type = PyObject_Type(obj);
+            if (type == NULL) {
+                printf("Error: Could not get object type\n");
+                PyErr_Print();
+                return;
+            }
+        
+            PyObject *type_name = PyObject_GetAttrString(type, "__name__");
+            if (type_name == NULL) {
+                printf("Error: Could not get type name\n");
+                PyErr_Print();
+                Py_DECREF(type);
+                return;
+            }
+        
+            const char *name = PyUnicode_AsUTF8(type_name);
+            if (name == NULL) {
+                printf("Error: Could not convert type name to string\n");
+                PyErr_Print();
+            } else {
+                printf("Object type: %s\n", name);
+            }
+        
+            Py_DECREF(type_name);
+            Py_DECREF(type);
+        }
+
     }
 }
 

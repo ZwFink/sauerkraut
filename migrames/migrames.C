@@ -81,61 +81,6 @@ void copy_stack(_PyInterpreterFrame *src, _PyInterpreterFrame *dest) {
 }
 
 
-void print_object(PyObject *obj) {
-    if (obj == NULL) {
-        printf("Error: NULL object passed\n");
-        return;
-    }
-
-    PyObject *str = PyObject_Repr(obj);
-    if (str == NULL) {
-        PyErr_Print();
-        return;
-    }
-
-    const char *c_str = PyUnicode_AsUTF8(str);
-    if (c_str == NULL) {
-        Py_DECREF(str);
-        PyErr_Print();
-        return;
-    }
-
-    printf("Object contents: %s\n", c_str);
-    Py_DECREF(str);
-}
-
-void print_object_type_name(PyObject *obj) {
-    if (obj == NULL) {
-        printf("Error: NULL object\n");
-        return;
-    }
-
-    PyObject *type = PyObject_Type(obj);
-    if (type == NULL) {
-        printf("Error: Could not get object type\n");
-        PyErr_Print();
-        return;
-    }
-
-    PyObject *type_name = PyObject_GetAttrString(type, "__name__");
-    if (type_name == NULL) {
-        printf("Error: Could not get type name\n");
-        PyErr_Print();
-        Py_DECREF(type);
-        return;
-    }
-
-    const char *name = PyUnicode_AsUTF8(type_name);
-    if (name == NULL) {
-        printf("Error: Could not convert type name to string\n");
-        PyErr_Print();
-    } else {
-        printf("Object type: %s\n", name);
-    }
-
-    Py_DECREF(type_name);
-    Py_DECREF(type);
-}
 
 PyAPI_FUNC(PyFrameObject *) PyFrame_New(PyThreadState *, PyCodeObject *,
                                         PyObject *, PyObject *);
@@ -384,7 +329,7 @@ static PyObject* _serialize_frame_from_capsule(PyObject *capsule) {
 
     serdes::PyFrameSerdes frame_serdes{po_serdes};
 
-    auto serialized_frame = frame_serdes.serialize(builder, *(static_cast<struct _frame *>(copy_capsule->frame)));
+    auto serialized_frame = frame_serdes.serialize(builder, *(static_cast<migrames::PyFrame*>(copy_capsule->frame)));
     builder.Finish(serialized_frame);
 
     auto detached_buffer = builder.Release();
@@ -407,7 +352,7 @@ static PyObject *_deserialize_frame_from_capsule(PyObject *capsule) {
 
     auto serframe = pyframe_buffer::GetPyFrame(data);
     auto deserframe = frame_serdes.deserialize(serframe);
-    int x;
+    utils::py::print_object(deserframe.f_frame.f_funcobj.borrow());
 }
 
 static PyObject *serialize_frame(PyObject *self, PyObject *args) {

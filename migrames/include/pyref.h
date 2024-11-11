@@ -7,10 +7,10 @@
 
 template <typename T>
 class py_strongref {
-    T *obj;
+    T *obj = NULL;
     public:
     py_strongref(T *obj) : obj(obj) {
-        Py_INCREF((PyObject*) obj);
+        Py_XINCREF((PyObject*) obj);
     }
 
     py_strongref() : obj(NULL) {}
@@ -20,6 +20,21 @@ class py_strongref {
 
     ~py_strongref() {
         Py_XDECREF((PyObject*) obj);
+    }
+
+    py_strongref(py_strongref &&other) {
+        obj = other.obj;
+        other.obj = NULL;
+    }
+
+    // = constructor
+    py_strongref &operator=(const py_strongref &other) {
+        if (this != &other) {
+            Py_XDECREF((PyObject*) obj);
+            obj = other.obj;
+            Py_XINCREF((PyObject*) obj);
+        }
+        return *this;
     }
 
     PyObject *operator*() {
