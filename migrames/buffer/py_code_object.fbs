@@ -44,7 +44,7 @@ table PyCodeObject {
   // int _co_firsttraceable;
   // void *co_extra;
 
-  co_code_adaptive:[PyCodeUnit];
+  co_code_adaptive:[uint8];
 
 
 }

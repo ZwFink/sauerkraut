@@ -105,6 +105,15 @@ namespace serdes {
     template <typename PyCodeObjectSerializer>
     class PyCodeObjectSerdes {
         PyCodeObjectSerializer po_serializer;
+        template<typename Builder>
+        flatbuffers::Offset<flatbuffers::Vector<uint8_t>> serialize_bitcode(Builder &builder, PyCodeObject *code) {
+            auto n_instructions = Py_SIZE(code);
+            auto total_size_bytes = n_instructions * sizeof(migrames::PyBitcodeInstruction);
+            const migrames::PyBitcodeInstruction *bitcode = (const migrames::PyBitcodeInstruction *) code->co_code_adaptive;
+
+            auto bytes = builder.CreateVector((const uint8_t*) bitcode, total_size_bytes);
+            return bytes;
+        }
 
         public:
         PyCodeObjectSerdes(PyCodeObjectSerializer& po_serializer) : 
@@ -141,6 +150,8 @@ namespace serdes {
 
             auto co_weakreflist_ser = (NULL != obj->co_weakreflist) ?
                 std::optional{po_serializer.serialize(builder, obj->co_weakreflist)} : std::nullopt;
+
+            auto co_code_adaptive_ser = serialize_bitcode(builder, obj);
 
             pyframe_buffer::PyCodeObjectBuilder code_builder(builder);
 
@@ -191,6 +202,7 @@ namespace serdes {
             if (co_weakreflist_ser) {
                 code_builder.add_co_weakreflist(co_weakreflist_ser.value());
             }
+            code_builder.add_co_code_adaptive(co_code_adaptive_ser);
 
             return code_builder.Finish();
         }
@@ -208,14 +220,17 @@ namespace serdes {
         flatbuffers::Offset<flatbuffers::Vector<offsets::PyObjectOffset>> serialize_fast_locals_plus(Builder &builder, migrames::PyInterpreterFrame &obj) {
             auto n_locals = utils::py::get_code_nlocals((PyCodeObject*)obj.f_executable.bits);
             std::vector<offsets::PyObjectOffset> localsplus;
+            localsplus.reserve(n_locals);
+
             for(int i = 0; i < n_locals; i++) {
                 auto local = obj.localsplus[i];
                 PyObject *local_pyobj = (PyObject*)local.bits;
-                // a local can be NULL if it has not yet been
+                // a local can be NULL if it has not
                 // initialized in the program by this point
                 if(NULL == local_pyobj) {
                     continue;
                 }
+
                 auto local_ser = po_serializer.serialize(builder, local_pyobj);
                 localsplus.push_back(local_ser);
             }

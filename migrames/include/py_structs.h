@@ -51,6 +51,7 @@ typedef struct _PyInterpreterFrame {
 namespace migrames {
     using PyInterpreterFrame = struct _PyInterpreterFrame;
     using PyFrame = struct _frame;
+    using PyBitcodeInstruction = _CodeUnit;
 }
 
 #endif // PY_STRUCTS_HH_INCLUDED
