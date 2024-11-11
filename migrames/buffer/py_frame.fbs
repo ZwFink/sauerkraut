@@ -1,4 +1,6 @@
 include "py_object.fbs";
+include "py_object_head.fbs";
+include "py_interpreter_frame.fbs";
 include "stackref.fbs";
 include "code_unit.fbs";
 namespace pyframe_buffer;
@@ -7,7 +9,7 @@ namespace pyframe_buffer;
 table PyFrame {
   ob_base:PyObjectHead;
   // SKIPPED: PyFrameObject *f_back;
-  // SKIPPED: struct _PyInterpreterFrame *f_frame;
+  f_frame:PyInterpreterFrame;
   f_trace:PyObject;
   f_lineno:int32;
   f_trace_lines:int8;

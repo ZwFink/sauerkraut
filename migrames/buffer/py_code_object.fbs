@@ -1,5 +1,6 @@
 include "py_object.fbs";
 include "code_unit.fbs";
+include "py_var_object_head.fbs";
 include "stackref.fbs";
 
 namespace pyframe_buffer;
@@ -33,7 +34,6 @@ table PyCodeObject {
   co_name:PyObject;
   co_qualname:PyObject;
   co_linetable:PyObject;
-  co_weakreflist:PyObject;
 
   // NOTE: The following are pulled from code.h, skipping for now
   // _PyExecutorArray *co_executors;
@@ -43,7 +43,7 @@ table PyCodeObject {
   // int _co_firsttraceable;
   // void *co_extra;
 
-  co_code_adaptive:[PyCodeUnit];
+  co_code_adaptive:[uint8];
 
 
 }

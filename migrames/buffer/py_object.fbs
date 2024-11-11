@@ -4,13 +4,4 @@ table PyObject {
   data:[ubyte];  // equivalent to bytes in protobuf
 }
 
-table PyObjectHead {
-  ob_base:PyObject;
-}
-
-table PyVarObjectHead {
-  ob_base:PyObject;
-  ob_size:uint64;
-}
-
 root_type PyObject;

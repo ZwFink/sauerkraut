@@ -13,13 +13,17 @@ table PyInterpreterFrame {
   f_globals:PyObject;
   f_builtins:PyObject;
   f_locals:PyObject;
-  frame_obj:PyFrame;
   // instead of instruction pointer, store the offset from base
   instr_offset:uint64;
   // SKIPPED: _PyStackRef *stackpointer;
   return_offset:uint16;
   owner:uint8;
-  locals_plus:[PyStackref];
+  // NOTE: this is not the entirety localsplus object,
+  // which contains both localsplus AND the evaluation stack.
+  // Here, we will only store the localsplus part.
+  // When deserializing, you must correctly allocate data
+  // for the locals plus AND the evaluation stack
+  locals_plus:[PyObject];
 }
 
 root_type PyInterpreterFrame;

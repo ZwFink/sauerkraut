@@ -14,21 +14,23 @@ set_target_properties(migrames PROPERTIES
 )
 set(FlatBuffersIncludePath ${FLATBUFFER_INCLUDE_DIRS})
 # Include directories for the target
-target_include_directories(migrames PRIVATE
+target_include_directories(migrames PUBLIC
     ${FlatBuffersIncludePath}
     ${FLATBUFFER_GENERATED_HEADERS}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
 add_subdirectory(buffer)
+add_subdirectory(serdes)
 
-add_dependencies(migrames generate_flatbuffers)
+add_dependencies(migrames generate_flatbuffers serdes)
 # Link necessary libraries
 target_link_libraries(migrames
     Python::Python
-    ${Protobuf_LIBRARIES}
     pthread
     m
     util
     dl
+    serdes
 )
 
 # shared library shoudl go to the build directory

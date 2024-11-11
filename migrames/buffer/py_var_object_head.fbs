@@ -1,0 +1,10 @@
+include "py_object.fbs";
+
+namespace pyframe_buffer;
+
+table PyVarObjectHead {
+  ob_base:PyObject;
+  ob_size:uint64;
+}
+
+root_type PyVarObjectHead;

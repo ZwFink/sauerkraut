@@ -1,40 +1,13 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 #include <stdbool.h>
-#include "pyobject.pb.h"
+#include "flatbuffers/flatbuffers.h"
+#include "py_object_generated.h"
+#include "utils.h"
+#include "serdes.h"
+#include "pyref.h" 
+#include "py_structs.h"
 
-template <typename T>
-class py_strongref {
-    T *obj;
-    public:
-    py_strongref(T *obj) : obj(obj) {
-        Py_INCREF((PyObject*) obj);
-    }
-
-    py_strongref() : obj(NULL) {}
-    py_strongref(const py_strongref &other) : obj(other.obj) {
-        Py_INCREF((PyObject*) obj);
-    }
-
-    ~py_strongref() {
-        Py_XDECREF((PyObject*) obj);
-    }
-
-    PyObject *operator*() {
-        return this->borrow();
-    }
-
-    PyObject *borrow() {
-        return (PyObject*) obj;
-    }
-
-    void operator=(PyObject *new_obj) {
-        // always steals
-        obj = new_obj;
-    }
-};
-
-using pyobject_strongref = py_strongref<PyObject>;
 
 class migrames_modulestate {
     public:
@@ -53,51 +26,32 @@ class migrames_modulestate {
 
 };
 
+class dumps_functor {
+    pyobject_weakref pickle_dumps;
+    public:
+    dumps_functor(pyobject_weakref pickle_dumps) : pickle_dumps(pickle_dumps) {}
+
+    pyobject_strongref operator()(PyObject *obj) {
+        PyObject *result = PyObject_CallOneArg(*pickle_dumps, obj);
+        return pyobject_strongref::steal(result);
+    }
+};
+
+class loads_functor {
+    pyobject_weakref pickle_loads;
+    public:
+    loads_functor(pyobject_weakref pickle_loads) : pickle_loads(pickle_loads) {}
+
+    pyobject_strongref operator()(PyObject *obj) {
+        PyObject *result = PyObject_CallOneArg(*pickle_loads, obj);
+        return pyobject_strongref::steal(result);
+    }
+};
+
 static migrames_modulestate *migrames_state;
 
 extern "C" {
 
-typedef union _PyStackRef {
-    uintptr_t bits;
-} _PyStackRef;
-
-// Dummy definition: real definition is in pycore_code.h
-typedef struct _CodeUnit {
-    uint8_t opcode;
-    uint8_t oparg;
-} _CodeUnit;
-
-struct _frame {
-    PyObject_HEAD
-    PyFrameObject *f_back;      /* previous frame, or NULL */
-    struct _PyInterpreterFrame *f_frame; /* points to the frame data */
-    PyObject *f_trace;          /* Trace function */
-    int f_lineno;               /* Current line number. Only valid if non-zero */
-    char f_trace_lines;         /* Emit per-line trace events? */
-    char f_trace_opcodes;       /* Emit per-opcode trace events? */
-    PyObject *f_extra_locals;   /* Dict for locals set by users using f_locals, could be NULL */
-    PyObject *f_locals_cache;   /* Backwards compatibility for PyEval_GetLocals */
-    PyObject *_f_frame_data[1]; /* Frame data if this frame object owns the frame */
-};
-
-struct _PyInterpreterFrame *
-_PyThreadState_PushFrame(PyThreadState *tstate, size_t size);
-
-typedef struct _PyInterpreterFrame {
-    _PyStackRef f_executable; /* Deferred or strong reference (code object or None) */
-    struct _PyInterpreterFrame *previous;
-    PyObject *f_funcobj; /* Strong reference. Only valid if not on C stack */
-    PyObject *f_globals; /* Borrowed reference. Only valid if not on C stack */
-    PyObject *f_builtins; /* Borrowed reference. Only valid if not on C stack */
-    PyObject *f_locals; /* Strong reference, may be NULL. Only valid if not on C stack */
-    PyFrameObject *frame_obj; /* Strong reference, may be NULL. Only valid if not on C stack */
-    _CodeUnit *instr_ptr; /* Instruction currently executing (or about to begin) */
-    _PyStackRef *stackpointer;
-    uint16_t return_offset;  /* Only relevant during a function call */
-    char owner;
-    /* Locals and stack */
-    _PyStackRef localsplus[1];
-} _PyInterpreterFrame;
 
 static inline _PyStackRef *_PyFrame_Stackbase(_PyInterpreterFrame *f) {
     return f->localsplus + ((PyCodeObject*)f->f_executable.bits)->co_nlocalsplus;
@@ -126,68 +80,7 @@ void copy_stack(_PyInterpreterFrame *src, _PyInterpreterFrame *dest) {
     dest->stackpointer = dest_stack_base + stack_size;
 }
 
-Py_ssize_t get_instr_offset(struct _frame *frame) {
-    PyCodeObject *code = PyFrame_GetCode(frame);
-    Py_ssize_t first_instr_addr = (Py_ssize_t) code->co_code_adaptive;
-    Py_ssize_t current_instr_addr = (Py_ssize_t) frame->f_frame->instr_ptr;
-    return current_instr_addr - first_instr_addr;
-}
 
-void print_object(PyObject *obj) {
-    if (obj == NULL) {
-        printf("Error: NULL object passed\n");
-        return;
-    }
-
-    PyObject *str = PyObject_Repr(obj);
-    if (str == NULL) {
-        PyErr_Print();
-        return;
-    }
-
-    const char *c_str = PyUnicode_AsUTF8(str);
-    if (c_str == NULL) {
-        Py_DECREF(str);
-        PyErr_Print();
-        return;
-    }
-
-    printf("Object contents: %s\n", c_str);
-    Py_DECREF(str);
-}
-
-void print_object_type_name(PyObject *obj) {
-    if (obj == NULL) {
-        printf("Error: NULL object\n");
-        return;
-    }
-
-    PyObject *type = PyObject_Type(obj);
-    if (type == NULL) {
-        printf("Error: Could not get object type\n");
-        PyErr_Print();
-        return;
-    }
-
-    PyObject *type_name = PyObject_GetAttrString(type, "__name__");
-    if (type_name == NULL) {
-        printf("Error: Could not get type name\n");
-        PyErr_Print();
-        Py_DECREF(type);
-        return;
-    }
-
-    const char *name = PyUnicode_AsUTF8(type_name);
-    if (name == NULL) {
-        printf("Error: Could not convert type name to string\n");
-        PyErr_Print();
-    } else {
-        printf("Object type: %s\n", name);
-    }
-
-    Py_DECREF(type_name);
-    Py_DECREF(type);
-}
 
 PyAPI_FUNC(PyFrameObject *) PyFrame_New(PyThreadState *, PyCodeObject *,
                                         PyObject *, PyObject *);
@@ -316,6 +209,7 @@ PyFrameObject *create_copied_frame(PyThreadState *tstate, _PyInterpreterFrame *t
 }
 
 static PyObject *copy_frame(PyObject *self, PyObject *args) {
+    using namespace utils;
     struct _frame *frame = (struct _frame*) PyEval_GetFrame();
     _PyInterpreterFrame *to_copy = frame->f_frame;
     PyThreadState *tstate = PyThreadState_Get();
@@ -323,7 +217,7 @@ static PyObject *copy_frame(PyObject *self, PyObject *args) {
     assert(code != NULL);
     PyCodeObject *copy_code_obj = (PyCodeObject *)deepcopy_object((PyObject*)code);
 
-    Py_ssize_t offset = get_instr_offset(frame) + 5 * sizeof(_CodeUnit);
+    Py_ssize_t offset = py::get_instr_offset(frame) + py::get_offset_for_skipping_call();
     PyObject *FrameLocals = GetFrameLocalsFromFrame((PyObject*)frame);
     PyObject *LocalCopy = PyDict_Copy(FrameLocals);
 
@@ -338,6 +232,7 @@ static PyObject *copy_frame(PyObject *self, PyObject *args) {
 }
 
 static PyObject *copy_and_run_frame(PyObject *self, PyObject *args) {
+    using namespace utils;
     struct _frame *frame = (struct _frame*) PyEval_GetFrame();
     _PyInterpreterFrame *to_copy = frame->f_frame;
     PyThreadState *tstate = PyThreadState_Get();
@@ -345,7 +240,7 @@ static PyObject *copy_and_run_frame(PyObject *self, PyObject *args) {
     assert(code != NULL);
     PyCodeObject *copy_code_obj = (PyCodeObject *)deepcopy_object((PyObject*)code);
 
-    Py_ssize_t offset = get_instr_offset(frame) + 5 * sizeof(_CodeUnit);
+    Py_ssize_t offset = py::get_instr_offset(frame) + py::get_offset_for_skipping_call();
     PyObject *FrameLocals = GetFrameLocalsFromFrame((PyObject*)frame);
     PyObject *LocalCopy = PyDict_Copy(FrameLocals);
 
@@ -399,10 +294,76 @@ static PyObject *run_frame(PyObject *self, PyObject *args) {
     return _copy_run_frame_from_capsule(capsule);
 }
 
+static PyObject* _serialize_frame_from_capsule(PyObject *capsule) {
+    if (PyErr_Occurred()) {
+        PyErr_Print();
+        return NULL;
+    }
+
+    struct frame_copy_capsule *copy_capsule = (struct frame_copy_capsule *)PyCapsule_GetPointer(capsule, copy_frame_capsule_name);
+    if (copy_capsule == NULL) {
+        return NULL;
+    }
+
+    loads_functor loads(migrames_state->pickle_loads);
+    dumps_functor dumps(migrames_state->pickle_dumps);
+
+    flatbuffers::FlatBufferBuilder builder{1024};
+    serdes::PyObjectSerdes po_serdes(loads, dumps);
+
+    serdes::PyFrameSerdes frame_serdes{po_serdes};
+
+    auto serialized_frame = frame_serdes.serialize(builder, *(static_cast<migrames::PyFrame*>(copy_capsule->frame)));
+    builder.Finish(serialized_frame);
+    auto buf = builder.GetBufferPointer();
+    auto size = builder.GetSize();
+    PyObject *bytes = PyBytes_FromStringAndSize((const char *)buf, size);
+    return bytes;
+}
+
+static PyObject *_deserialize_frame(PyObject *bytes) {
+    if(PyErr_Occurred()) {
+        PyErr_Print();
+        return NULL;
+    }
+    loads_functor loads(migrames_state->pickle_loads);
+    dumps_functor dumps(migrames_state->pickle_dumps);
+    serdes::PyObjectSerdes po_serdes(loads, dumps);
+    serdes::PyFrameSerdes frame_serdes{po_serdes};
+
+    uint8_t *data = (uint8_t *)PyBytes_AsString(bytes);
+
+    auto serframe = pyframe_buffer::GetPyFrame(data);
+    auto deserframe = frame_serdes.deserialize(serframe);
+    utils::py::print_object(deserframe.f_frame.f_funcobj.borrow());
+
+    Py_RETURN_NONE;
+}
+
+static PyObject *serialize_frame(PyObject *self, PyObject *args) {
+    PyObject *capsule;
+    if (!PyArg_ParseTuple(args, "O", &capsule)) {
+        return NULL;
+    }
+
+    return _serialize_frame_from_capsule(capsule);
+}
+
+static PyObject *deserialize_frame(PyObject *self, PyObject *args) {
+    PyObject *bytes;
+    if (!PyArg_ParseTuple(args, "O", &bytes)) {
+        return NULL;
+    }
+
+    return _deserialize_frame(bytes);
+}
+
 static PyMethodDef MyMethods[] = {
     {"copy_and_run_frame", copy_and_run_frame, METH_VARARGS, "Copy the current frame and run it"},
     {"copy_frame", copy_frame, METH_VARARGS, "Copy the current frame"},
     {"run_frame", run_frame, METH_VARARGS, "Run the frame from the capsule"},
+    {"serialize_frame", serialize_frame, METH_VARARGS, "Serialize the frame"},
+    {"deserialize_frame", deserialize_frame, METH_VARARGS, "Deserialize the frame"},
     {NULL, NULL, 0, NULL}
 };
 
@@ -410,7 +371,7 @@ static void migrames_free(void *m) {
     delete migrames_state;
 }
 
-static struct PyModuleDef migrames = {
+static struct PyModuleDef migrames_mod = {
     PyModuleDef_HEAD_INIT,
     "migrames",
     "A module that defines the 'abcd' function",
@@ -424,7 +385,7 @@ static struct PyModuleDef migrames = {
 
 PyMODINIT_FUNC PyInit_migrames(void) {
     migrames_state = new migrames_modulestate();
-    return PyModule_Create(&migrames);
+    return PyModule_Create(&migrames_mod);
 }
 
 }
