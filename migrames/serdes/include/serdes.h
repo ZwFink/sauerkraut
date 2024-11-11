@@ -131,14 +131,13 @@ namespace serdes {
         int co_nfreevars;
         int co_version;
 
-        pyobject_strongref co_localsplusnames{NULL};
-        pyobject_strongref co_localspluskinds{NULL};
+        pyobject_strongref co_localsplusnames;
+        pyobject_strongref co_localspluskinds;
 
-        pyobject_strongref co_filename{NULL};
-        pyobject_strongref co_name{NULL};
-        pyobject_strongref co_qualname{NULL};
-        pyobject_strongref co_linetable{NULL};
-        pyobject_strongref co_weakreflist{NULL};
+        pyobject_strongref co_filename;
+        pyobject_strongref co_name;
+        pyobject_strongref co_qualname;
+        pyobject_strongref co_linetable;
 
         std::vector<unsigned char> co_code_adaptive;
     };
@@ -189,9 +188,6 @@ namespace serdes {
             auto co_linetable_ser = (NULL != obj->co_linetable) ?
                 std::optional{po_serializer.serialize(builder, obj->co_linetable)} : std::nullopt;
 
-            auto co_weakreflist_ser = (NULL != obj->co_weakreflist) ?
-                std::optional{po_serializer.serialize(builder, obj->co_weakreflist)} : std::nullopt;
-
             auto co_code_adaptive_ser = serialize_bitcode(builder, obj);
 
             pyframe_buffer::PyCodeObjectBuilder code_builder(builder);
@@ -240,9 +236,6 @@ namespace serdes {
             if (co_linetable_ser) {
                 code_builder.add_co_linetable(co_linetable_ser.value());
             }
-            if (co_weakreflist_ser) {
-                code_builder.add_co_weakreflist(co_weakreflist_ser.value());
-            }
             code_builder.add_co_code_adaptive(co_code_adaptive_ser);
 
             return code_builder.Finish();
@@ -276,7 +269,6 @@ namespace serdes {
             deser.co_name = po_serializer.deserialize(obj->co_name());
             deser.co_qualname = po_serializer.deserialize(obj->co_qualname());
             deser.co_linetable = po_serializer.deserialize(obj->co_linetable());
-            deser.co_weakreflist = po_serializer.deserialize(obj->co_weakreflist());
 
             auto bitcode = obj->co_code_adaptive();
             deser.co_code_adaptive = std::vector<unsigned char>(bitcode->begin(), bitcode->end());
