@@ -145,9 +145,7 @@ namespace serdes {
                     frame_builder.add_f_locals_cache(f_locals_cache_ser);
                 }
                 
-                auto frame = frame_builder.Finish();
-                return frame;
-
+                return frame_builder.Finish();
             }
 
             PyFrame deserialize(const pyframe_buffer::PyFrame *obj) {

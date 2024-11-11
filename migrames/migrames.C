@@ -201,7 +201,12 @@ struct frame_copy_capsule {
     size_t offset;
 };
 
+struct serialized_frame_capsule {
+    flatbuffers::DetachedBuffer buffer;
+};
+
 static char copy_frame_capsule_name[] = "Frame Capsule Object";
+static char serialize_frame_capsule_name[] = "Serialized Frame Capsule Object";
 
 void frame_copy_capsule_destroy(PyObject *capsule) {
     struct frame_copy_capsule *copy_capsule = (struct frame_copy_capsule *)PyCapsule_GetPointer(capsule, copy_frame_capsule_name);
@@ -214,6 +219,17 @@ PyObject *frame_copy_capsule_create(PyFrameObject *frame, size_t offset) {
     copy_capsule->frame = frame;
     copy_capsule->offset = offset;
     return PyCapsule_New(copy_capsule, copy_frame_capsule_name, frame_copy_capsule_destroy);
+}
+
+void serialized_frame_capsule_destroy(PyObject *capsule) {
+    struct serialized_frame_capsule *copy_capsule = (struct serialized_frame_capsule *)PyCapsule_GetPointer(capsule, serialize_frame_capsule_name);
+    delete copy_capsule;
+}
+
+PyObject *serialized_frame_capsule_create(flatbuffers::DetachedBuffer &&buffer) {
+    struct serialized_frame_capsule *copy_capsule = new struct serialized_frame_capsule;
+    copy_capsule->buffer = std::move(buffer);
+    return PyCapsule_New(copy_capsule, serialize_frame_capsule_name, serialized_frame_capsule_destroy);
 }
 
 void copy_localsplus(_PyInterpreterFrame *to_copy, _PyInterpreterFrame *new_frame, int nlocals, int deepcopy) {
@@ -372,9 +388,11 @@ static PyObject* _serialize_frame_from_capsule(PyObject *capsule) {
     serdes::PyFrameSerdes frame_serdes{po_serdes};
 
     auto serialized_frame = frame_serdes.serialize(builder, *(static_cast<struct _frame *>(copy_capsule->frame)));
+    builder.Finish(serialized_frame);
 
-    // how to wrap it in a capsule?
-
+    auto detached_buffer = builder.Release();
+    PyObject *py_capsule = serialized_frame_capsule_create(std::move(detached_buffer));
+    return py_capsule;
 }
 
 static PyObject *serialize_frame(PyObject *self, PyObject *args) {
