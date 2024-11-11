@@ -1,40 +1,12 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 #include <stdbool.h>
-#include "pyobject.pb.h"
+#include "flatbuffers/flatbuffers.h"
+#include "py_object_generated.h"
+#include "serdes.h"
+#include "pyref.h" 
+#include "py_structs.h"
 
-template <typename T>
-class py_strongref {
-    T *obj;
-    public:
-    py_strongref(T *obj) : obj(obj) {
-        Py_INCREF((PyObject*) obj);
-    }
-
-    py_strongref() : obj(NULL) {}
-    py_strongref(const py_strongref &other) : obj(other.obj) {
-        Py_INCREF((PyObject*) obj);
-    }
-
-    ~py_strongref() {
-        Py_XDECREF((PyObject*) obj);
-    }
-
-    PyObject *operator*() {
-        return this->borrow();
-    }
-
-    PyObject *borrow() {
-        return (PyObject*) obj;
-    }
-
-    void operator=(PyObject *new_obj) {
-        // always steals
-        obj = new_obj;
-    }
-};
-
-using pyobject_strongref = py_strongref<PyObject>;
 
 class migrames_modulestate {
     public:
@@ -53,51 +25,32 @@ class migrames_modulestate {
 
 };
 
+class dumps_functor {
+    pyobject_weakref pickle_dumps;
+    public:
+    dumps_functor(pyobject_weakref pickle_dumps) : pickle_dumps(pickle_dumps) {}
+
+    pyobject_strongref operator()(PyObject *obj) {
+        PyObject *result = PyObject_CallFunction(*pickle_dumps, "O", obj);
+        return pyobject_strongref::steal(result);
+    }
+};
+
+class loads_functor {
+    pyobject_weakref pickle_loads;
+    public:
+    loads_functor(pyobject_weakref pickle_loads) : pickle_loads(pickle_loads) {}
+
+    pyobject_strongref operator()(PyObject *obj) {
+        PyObject *result = PyObject_CallFunction(*pickle_loads, "O", obj);
+        return pyobject_strongref::steal(result);
+    }
+};
+
 static migrames_modulestate *migrames_state;
 
 extern "C" {
 
-typedef union _PyStackRef {
-    uintptr_t bits;
-} _PyStackRef;
-
-// Dummy definition: real definition is in pycore_code.h
-typedef struct _CodeUnit {
-    uint8_t opcode;
-    uint8_t oparg;
-} _CodeUnit;
-
-struct _frame {
-    PyObject_HEAD
-    PyFrameObject *f_back;      /* previous frame, or NULL */
-    struct _PyInterpreterFrame *f_frame; /* points to the frame data */
-    PyObject *f_trace;          /* Trace function */
-    int f_lineno;               /* Current line number. Only valid if non-zero */
-    char f_trace_lines;         /* Emit per-line trace events? */
-    char f_trace_opcodes;       /* Emit per-opcode trace events? */
-    PyObject *f_extra_locals;   /* Dict for locals set by users using f_locals, could be NULL */
-    PyObject *f_locals_cache;   /* Backwards compatibility for PyEval_GetLocals */
-    PyObject *_f_frame_data[1]; /* Frame data if this frame object owns the frame */
-};
-
-struct _PyInterpreterFrame *
-_PyThreadState_PushFrame(PyThreadState *tstate, size_t size);
-
-typedef struct _PyInterpreterFrame {
-    _PyStackRef f_executable; /* Deferred or strong reference (code object or None) */
-    struct _PyInterpreterFrame *previous;
-    PyObject *f_funcobj; /* Strong reference. Only valid if not on C stack */
-    PyObject *f_globals; /* Borrowed reference. Only valid if not on C stack */
-    PyObject *f_builtins; /* Borrowed reference. Only valid if not on C stack */
-    PyObject *f_locals; /* Strong reference, may be NULL. Only valid if not on C stack */
-    PyFrameObject *frame_obj; /* Strong reference, may be NULL. Only valid if not on C stack */
-    _CodeUnit *instr_ptr; /* Instruction currently executing (or about to begin) */
-    _PyStackRef *stackpointer;
-    uint16_t return_offset;  /* Only relevant during a function call */
-    char owner;
-    /* Locals and stack */
-    _PyStackRef localsplus[1];
-} _PyInterpreterFrame;
 
 static inline _PyStackRef *_PyFrame_Stackbase(_PyInterpreterFrame *f) {
     return f->localsplus + ((PyCodeObject*)f->f_executable.bits)->co_nlocalsplus;
@@ -399,10 +352,45 @@ static PyObject *run_frame(PyObject *self, PyObject *args) {
     return _copy_run_frame_from_capsule(capsule);
 }
 
+static PyObject* _serialize_frame_from_capsule(PyObject *capsule) {
+    if (PyErr_Occurred()) {
+        PyErr_Print();
+        return NULL;
+    }
+
+    struct frame_copy_capsule *copy_capsule = (struct frame_copy_capsule *)PyCapsule_GetPointer(capsule, copy_frame_capsule_name);
+    if (copy_capsule == NULL) {
+        return NULL;
+    }
+
+    loads_functor loads(migrames_state->pickle_loads);
+    dumps_functor dumps(migrames_state->pickle_dumps);
+
+    flatbuffers::FlatBufferBuilder builder{1024};
+    serdes::PyObjectSerdes po_serdes(loads, dumps);
+
+    serdes::PyFrameSerdes frame_serdes{po_serdes};
+
+    auto serialized_frame = frame_serdes.serialize(builder, *(static_cast<struct _frame *>(copy_capsule->frame)));
+
+    // how to wrap it in a capsule?
+
+}
+
+static PyObject *serialize_frame(PyObject *self, PyObject *args) {
+    PyObject *capsule;
+    if (!PyArg_ParseTuple(args, "O", &capsule)) {
+        return NULL;
+    }
+
+    return _serialize_frame_from_capsule(capsule);
+}
+
 static PyMethodDef MyMethods[] = {
     {"copy_and_run_frame", copy_and_run_frame, METH_VARARGS, "Copy the current frame and run it"},
     {"copy_frame", copy_frame, METH_VARARGS, "Copy the current frame"},
     {"run_frame", run_frame, METH_VARARGS, "Run the frame from the capsule"},
+    {"serialize_frame", serialize_frame, METH_VARARGS, "Serialize the frame"},
     {NULL, NULL, 0, NULL}
 };
 

@@ -1,0 +1,8 @@
+include "py_object.fbs";
+namespace pyframe_buffer;
+
+table PyObjectHead {
+  ob_base:PyObject;
+}
+
+root_type PyObjectHead;

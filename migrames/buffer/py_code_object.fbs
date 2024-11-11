@@ -1,5 +1,6 @@
 include "py_object.fbs";
 include "code_unit.fbs";
+include "py_var_object_head.fbs";
 include "stackref.fbs";
 
 namespace pyframe_buffer;
