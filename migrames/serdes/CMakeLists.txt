@@ -1,5 +1,6 @@
 set(SOURCES
     serdes.C
+    include/serdes.h
 )
 
 add_library(serdes SHARED ${SOURCES})

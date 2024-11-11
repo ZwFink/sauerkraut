@@ -46,6 +46,11 @@ typedef struct _PyInterpreterFrame {
     _PyStackRef localsplus[1];
 } _PyInterpreterFrame;
 
+} // extern "C"
+
+namespace migrames {
+    using PyInterpreterFrame = struct _PyInterpreterFrame;
+    using PyFrame = struct _frame;
 }
 
 #endif // PY_STRUCTS_HH_INCLUDED

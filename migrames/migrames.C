@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include "flatbuffers/flatbuffers.h"
 #include "py_object_generated.h"
+#include "utils.h"
 #include "serdes.h"
 #include "pyref.h" 
 #include "py_structs.h"
@@ -31,7 +32,7 @@ class dumps_functor {
     dumps_functor(pyobject_weakref pickle_dumps) : pickle_dumps(pickle_dumps) {}
 
     pyobject_strongref operator()(PyObject *obj) {
-        PyObject *result = PyObject_CallFunction(*pickle_dumps, "O", obj);
+        PyObject *result = PyObject_CallOneArg(*pickle_dumps, obj);
         return pyobject_strongref::steal(result);
     }
 };
@@ -42,7 +43,7 @@ class loads_functor {
     loads_functor(pyobject_weakref pickle_loads) : pickle_loads(pickle_loads) {}
 
     pyobject_strongref operator()(PyObject *obj) {
-        PyObject *result = PyObject_CallFunction(*pickle_loads, "O", obj);
+        PyObject *result = PyObject_CallOneArg(*pickle_loads, obj);
         return pyobject_strongref::steal(result);
     }
 };
@@ -79,12 +80,6 @@ void copy_stack(_PyInterpreterFrame *src, _PyInterpreterFrame *dest) {
     dest->stackpointer = dest_stack_base + stack_size;
 }
 
-Py_ssize_t get_instr_offset(struct _frame *frame) {
-    PyCodeObject *code = PyFrame_GetCode(frame);
-    Py_ssize_t first_instr_addr = (Py_ssize_t) code->co_code_adaptive;
-    Py_ssize_t current_instr_addr = (Py_ssize_t) frame->f_frame->instr_ptr;
-    return current_instr_addr - first_instr_addr;
-}
 
 void print_object(PyObject *obj) {
     if (obj == NULL) {
@@ -285,6 +280,7 @@ PyFrameObject *create_copied_frame(PyThreadState *tstate, _PyInterpreterFrame *t
 }
 
 static PyObject *copy_frame(PyObject *self, PyObject *args) {
+    using namespace utils;
     struct _frame *frame = (struct _frame*) PyEval_GetFrame();
     _PyInterpreterFrame *to_copy = frame->f_frame;
     PyThreadState *tstate = PyThreadState_Get();
@@ -292,7 +288,7 @@ static PyObject *copy_frame(PyObject *self, PyObject *args) {
     assert(code != NULL);
     PyCodeObject *copy_code_obj = (PyCodeObject *)deepcopy_object((PyObject*)code);
 
-    Py_ssize_t offset = get_instr_offset(frame) + 5 * sizeof(_CodeUnit);
+    Py_ssize_t offset = py::get_instr_offset(frame) + py::get_offset_for_skipping_call();
     PyObject *FrameLocals = GetFrameLocalsFromFrame((PyObject*)frame);
     PyObject *LocalCopy = PyDict_Copy(FrameLocals);
 
@@ -307,6 +303,7 @@ static PyObject *copy_frame(PyObject *self, PyObject *args) {
 }
 
 static PyObject *copy_and_run_frame(PyObject *self, PyObject *args) {
+    using namespace utils;
     struct _frame *frame = (struct _frame*) PyEval_GetFrame();
     _PyInterpreterFrame *to_copy = frame->f_frame;
     PyThreadState *tstate = PyThreadState_Get();
@@ -314,7 +311,7 @@ static PyObject *copy_and_run_frame(PyObject *self, PyObject *args) {
     assert(code != NULL);
     PyCodeObject *copy_code_obj = (PyCodeObject *)deepcopy_object((PyObject*)code);
 
-    Py_ssize_t offset = get_instr_offset(frame) + 5 * sizeof(_CodeUnit);
+    Py_ssize_t offset = py::get_instr_offset(frame) + py::get_offset_for_skipping_call();
     PyObject *FrameLocals = GetFrameLocalsFromFrame((PyObject*)frame);
     PyObject *LocalCopy = PyDict_Copy(FrameLocals);
 
@@ -395,6 +392,24 @@ static PyObject* _serialize_frame_from_capsule(PyObject *capsule) {
     return py_capsule;
 }
 
+static PyObject *_deserialize_frame_from_capsule(PyObject *capsule) {
+    if(PyErr_Occurred()) {
+        PyErr_Print();
+        return NULL;
+    }
+    loads_functor loads(migrames_state->pickle_loads);
+    dumps_functor dumps(migrames_state->pickle_dumps);
+    serdes::PyObjectSerdes po_serdes(loads, dumps);
+    serdes::PyFrameSerdes frame_serdes{po_serdes};
+
+    struct serialized_frame_capsule *serialized_capsule = (struct serialized_frame_capsule *)PyCapsule_GetPointer(capsule, serialize_frame_capsule_name);
+    uint8_t *data = serialized_capsule->buffer.data();
+
+    auto serframe = pyframe_buffer::GetPyFrame(data);
+    auto deserframe = frame_serdes.deserialize(serframe);
+    int x;
+}
+
 static PyObject *serialize_frame(PyObject *self, PyObject *args) {
     PyObject *capsule;
     if (!PyArg_ParseTuple(args, "O", &capsule)) {
@@ -404,11 +419,21 @@ static PyObject *serialize_frame(PyObject *self, PyObject *args) {
     return _serialize_frame_from_capsule(capsule);
 }
 
+static PyObject *deserialize_frame(PyObject *self, PyObject *args) {
+    PyObject *capsule;
+    if (!PyArg_ParseTuple(args, "O", &capsule)) {
+        return NULL;
+    }
+
+    return _deserialize_frame_from_capsule(capsule);
+}
+
 static PyMethodDef MyMethods[] = {
     {"copy_and_run_frame", copy_and_run_frame, METH_VARARGS, "Copy the current frame and run it"},
     {"copy_frame", copy_frame, METH_VARARGS, "Copy the current frame"},
     {"run_frame", run_frame, METH_VARARGS, "Run the frame from the capsule"},
     {"serialize_frame", serialize_frame, METH_VARARGS, "Serialize the frame"},
+    {"deserialize_frame", deserialize_frame, METH_VARARGS, "Deserialize the frame"},
     {NULL, NULL, 0, NULL}
 };
 
@@ -416,7 +441,7 @@ static void migrames_free(void *m) {
     delete migrames_state;
 }
 
-static struct PyModuleDef migrames = {
+static struct PyModuleDef migrames_mod = {
     PyModuleDef_HEAD_INIT,
     "migrames",
     "A module that defines the 'abcd' function",
@@ -430,7 +455,7 @@ static struct PyModuleDef migrames = {
 
 PyMODINIT_FUNC PyInit_migrames(void) {
     migrames_state = new migrames_modulestate();
-    return PyModule_Create(&migrames);
+    return PyModule_Create(&migrames_mod);
 }
 
 }

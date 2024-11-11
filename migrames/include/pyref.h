@@ -15,7 +15,7 @@ class py_strongref {
 
     py_strongref() : obj(NULL) {}
     py_strongref(const py_strongref &other) : obj(other.obj) {
-        Py_INCREF((PyObject*) obj);
+        Py_XINCREF((PyObject*) obj);
     }
 
     ~py_strongref() {

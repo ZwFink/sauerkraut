@@ -22,7 +22,7 @@ target_include_directories(migrames PUBLIC
 add_subdirectory(buffer)
 add_subdirectory(serdes)
 
-add_dependencies(migrames generate_flatbuffers)
+add_dependencies(migrames generate_flatbuffers serdes)
 # Link necessary libraries
 target_link_libraries(migrames
     Python::Python
