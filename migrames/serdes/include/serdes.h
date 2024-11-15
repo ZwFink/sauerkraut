@@ -149,7 +149,9 @@ namespace serdes {
         flatbuffers::Offset<flatbuffers::Vector<uint8_t>> serialize_bitcode(Builder &builder, PyCodeObject *code) {
             auto n_instructions = Py_SIZE(code);
             auto total_size_bytes = n_instructions * sizeof(migrames::PyBitcodeInstruction);
-            const migrames::PyBitcodeInstruction *bitcode = (const migrames::PyBitcodeInstruction *) code->co_code_adaptive;
+            // const migrames::PyBitcodeInstruction *bitcode = (const migrames::PyBitcodeInstruction *) code->co_code_adaptive;
+            PyObject *code_instrs = PyCode_GetCode(code);
+            char *bitcode = PyBytes_AsString(code_instrs);
 
             auto bytes = builder.CreateVector((const uint8_t*) bitcode, total_size_bytes);
             return bytes;
