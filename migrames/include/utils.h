@@ -3,6 +3,7 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 #include "py_structs.h"
+#include "pyref.h"
 
 namespace utils {
     namespace py {
@@ -18,6 +19,10 @@ namespace utils {
            return code->co_nlocals;
        }
 
+     migrames::PyBitcodeInstruction *get_code_adaptive(py_weakref<PyCodeObject> code) {
+           return (migrames::PyBitcodeInstruction*) code->co_code_adaptive;
+       }
+
        int get_iframe_localsplus_size(migrames::PyInterpreterFrame *iframe) {
            PyCodeObject *code = (PyCodeObject*) iframe->f_executable.bits;
            if(NULL == code) {
@@ -30,7 +35,7 @@ namespace utils {
             PyCodeObject *code = PyFrame_GetCode(frame);
             Py_ssize_t first_instr_addr = (Py_ssize_t) code->co_code_adaptive;
             Py_ssize_t current_instr_addr = (Py_ssize_t) frame->f_frame->instr_ptr;
-            return current_instr_addr - first_instr_addr;
+            return (current_instr_addr - first_instr_addr);
         }
 
         Py_ssize_t get_offset_for_skipping_call() {
@@ -91,6 +96,10 @@ namespace utils {
         
             Py_DECREF(type_name);
             Py_DECREF(type);
+        }
+
+        Py_ssize_t get_code_size(Py_ssize_t n_instructions) {
+            return n_instructions * sizeof(_CodeUnit);
         }
 
     }

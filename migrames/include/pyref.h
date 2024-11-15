@@ -70,17 +70,21 @@ class py_weakref {
     py_weakref(const py_strongref<T> &other) : obj(other.borrow()) {
     }
 
-    PyObject *operator*() {
+    T *operator*() {
         return this->borrow();
     }
 
-    PyObject *borrow() {
-        return (PyObject*) obj;
+    T *borrow() {
+        return (T*) obj;
     }
 
-    void operator=(PyObject *new_obj) {
+    void operator=(T *new_obj) {
         // always steals
         obj = new_obj;
+    }
+
+    T *operator->() {
+        return this->borrow();
     }
 };
 
