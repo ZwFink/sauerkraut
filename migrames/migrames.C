@@ -209,6 +209,8 @@ PyFrameObject *create_copied_frame(PyThreadState *tstate, _PyInterpreterFrame *t
 }
 
 PyFrameObject *push_frame_for_running(PyThreadState *tstate, _PyInterpreterFrame *to_push, PyCodeObject *code) {
+    // what about ownership? I'm thinking this should steal everything from to_push
+    // might create problems with the deallocation of the frame, though. Will have to see
     _PyInterpreterFrame *stack_frame = ThreadState_PushFrame(tstate, code->co_framesize);
     py_weakref<PyFrameObject> pyframe_object = to_push->frame_obj;
     if(stack_frame == NULL) {
@@ -220,6 +222,7 @@ PyFrameObject *push_frame_for_running(PyThreadState *tstate, _PyInterpreterFrame
     auto offset = utils::py::get_instr_offset(to_push->frame_obj);
     
     stack_frame->owner = to_push->owner;
+    // needs to be the currently executing frame
     stack_frame->previous = PyEval_GetFrame()->f_frame;
     stack_frame->f_funcobj = to_push->f_funcobj;
     stack_frame->f_executable.bits = to_push->f_executable.bits;
@@ -228,10 +231,11 @@ PyFrameObject *push_frame_for_running(PyThreadState *tstate, _PyInterpreterFrame
     stack_frame->f_locals = to_push->f_locals;
     stack_frame->frame_obj = *pyframe_object;
     stack_frame->stackpointer = stack_frame->localsplus + code->co_nlocalsplus;
-    stack_frame->instr_ptr = (_CodeUnit*) (code->co_code_adaptive + (offset-8));
+    stack_frame->instr_ptr = (_CodeUnit*) (code->co_code_adaptive + (offset));
     copy_stack(to_push, stack_frame);
 
     pyframe_object->f_frame = stack_frame;
+    // pyframe_object->f_back = PyEval_GetFrame();
     return *pyframe_object;
 }
 
@@ -246,7 +250,8 @@ static PyObject *copy_frame(PyObject *self, PyObject *args) {
 
     Py_ssize_t offset = py::get_instr_offset(frame) + py::get_offset_for_skipping_call();
     PyObject *FrameLocals = GetFrameLocalsFromFrame((PyObject*)frame);
-    PyObject *LocalCopy = PyDict_Copy(FrameLocals);
+    // PyObject *LocalCopy = PyDict_Copy(FrameLocals);
+    PyObject *LocalCopy = deepcopy_object(FrameLocals);
 
     PyFrameObject *new_frame = create_copied_frame(tstate, to_copy, copy_code_obj, LocalCopy, offset, 0, 1, 0, 1);
 
@@ -376,7 +381,6 @@ static void init_code(PyCodeObject *obj, serdes::DeserializedCodeObject &code) {
     obj->co_linetable = Py_NewRef(code.co_linetable.borrow());
 
     memcpy(obj->co_code_adaptive, code.co_code_adaptive.data(), code.co_code_adaptive.size());
-    migrames::PyBitcodeInstruction *bitcode = (migrames::PyBitcodeInstruction *) obj->co_code_adaptive;
 
     // initialize the rest of the fields
     obj->co_weakreflist = NULL;
@@ -473,8 +477,7 @@ static void init_pyinterpreterframe(migrames::PyInterpreterFrame *interp_frame,
     }
 
     interp_frame->instr_ptr = (migrames::PyBitcodeInstruction*) 
-        (utils::py::get_code_adaptive(code) + frame_obj.instr_offset/2);
-    auto opcode = interp_frame->instr_ptr->opcode;
+        (utils::py::get_code_adaptive(code) + frame_obj.instr_offset/2);//utils::py::get_offset_for_skipping_call();
     interp_frame->return_offset = frame_obj.return_offset;
     interp_frame->stackpointer = interp_frame->localsplus + code->co_nlocalsplus;
     // TODO: Check what happens when we make the owner the frame object instead of the thread.
