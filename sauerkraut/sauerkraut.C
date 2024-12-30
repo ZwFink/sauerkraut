@@ -10,14 +10,14 @@
 #include "py_structs.h"
 
 
-class migrames_modulestate {
+class sauerkraut_modulestate {
     public:
         pyobject_strongref deepcopy;
         pyobject_strongref deepcopy_module;
         pyobject_strongref pickle_module;
         pyobject_strongref pickle_dumps;
         pyobject_strongref pickle_loads;
-        migrames_modulestate() {
+        sauerkraut_modulestate() {
             deepcopy_module = PyImport_ImportModule("copy");
             deepcopy = PyObject_GetAttrString(*deepcopy_module, "deepcopy");
             pickle_module = PyImport_ImportModule("pickle");
@@ -49,7 +49,7 @@ class loads_functor {
     }
 };
 
-static migrames_modulestate *migrames_state;
+static sauerkraut_modulestate *sauerkraut_state;
 
 extern "C" {
 
@@ -119,7 +119,7 @@ PyObject *deepcopy_object(PyObject *obj) {
     if (obj == NULL) {
         return NULL;
     }
-    PyObject *deepcopy = *migrames_state->deepcopy;
+    PyObject *deepcopy = *sauerkraut_state->deepcopy;
     PyObject *copy_obj = PyObject_CallFunction(deepcopy, "O", obj);
     return copy_obj;
 }
@@ -188,7 +188,7 @@ PyFrameObject *create_copied_frame(PyThreadState *tstate, _PyInterpreterFrame *t
     }
 
     if(stack_frame == NULL) {
-        PySys_WriteStderr("<Migrames>: Could not allocate memory for new frame\n");
+        PySys_WriteStderr("<Sauerkraut>: Could not allocate memory for new frame\n");
         return NULL;
     }
 
@@ -219,7 +219,7 @@ PyFrameObject *push_frame_for_running(PyThreadState *tstate, _PyInterpreterFrame
     _PyInterpreterFrame *stack_frame = ThreadState_PushFrame(tstate, code->co_framesize);
     py_weakref<PyFrameObject> pyframe_object = to_push->frame_obj;
     if(stack_frame == NULL) {
-        PySys_WriteStderr("<Migrames>: Could not allocate memory for new frame\n");
+        PySys_WriteStderr("<Sauerkraut>: Could not allocate memory for new frame\n");
         return NULL;
     }
 
@@ -352,15 +352,15 @@ static PyObject* _serialize_frame_from_capsule(PyObject *capsule) {
         return NULL;
     }
 
-    loads_functor loads(migrames_state->pickle_loads);
-    dumps_functor dumps(migrames_state->pickle_dumps);
+    loads_functor loads(sauerkraut_state->pickle_loads);
+    dumps_functor dumps(sauerkraut_state->pickle_dumps);
 
     flatbuffers::FlatBufferBuilder builder{1024};
     serdes::PyObjectSerdes po_serdes(loads, dumps);
 
     serdes::PyFrameSerdes frame_serdes{po_serdes};
 
-    auto serialized_frame = frame_serdes.serialize(builder, *(static_cast<migrames::PyFrame*>(copy_capsule->frame)));
+    auto serialized_frame = frame_serdes.serialize(builder, *(static_cast<sauerkraut::PyFrame*>(copy_capsule->frame)));
     builder.Finish(serialized_frame);
     auto buf = builder.GetBufferPointer();
     auto size = builder.GetSize();
@@ -452,7 +452,7 @@ static PyFrameObject *create_pyframe_object(serdes::DeserializedPyFrame& frame_o
     return frame;
 }
 
-static void init_pyinterpreterframe(migrames::PyInterpreterFrame *interp_frame, 
+static void init_pyinterpreterframe(sauerkraut::PyInterpreterFrame *interp_frame, 
                                    serdes::DeserializedPyInterpreterFrame& frame_obj,
                                    py_weakref<PyFrameObject> frame,
                                    py_weakref<PyCodeObject> code) {
@@ -494,9 +494,9 @@ static void init_pyinterpreterframe(migrames::PyInterpreterFrame *interp_frame,
     for(size_t i = localsplus.size(); i < code->co_nlocalsplus; i++) {
         interp_frame->localsplus[i].bits = 0;
     }
-    interp_frame->instr_ptr = (migrames::PyBitcodeInstruction*) 
+    interp_frame->instr_ptr = (sauerkraut::PyBitcodeInstruction*) 
         (utils::py::get_code_adaptive(code) + frame_obj.instr_offset/2);//utils::py::get_offset_for_skipping_call();
-    migrames::PyBitcodeInstruction *this_instr = (migrames::PyBitcodeInstruction*) interp_frame->instr_ptr;
+    sauerkraut::PyBitcodeInstruction *this_instr = (sauerkraut::PyBitcodeInstruction*) interp_frame->instr_ptr;
     interp_frame->return_offset = frame_obj.return_offset;
     interp_frame->stackpointer = frame_stack_base + stack.size();
     // TODO: Check what happens when we make the owner the frame object instead of the thread.
@@ -506,11 +506,11 @@ static void init_pyinterpreterframe(migrames::PyInterpreterFrame *interp_frame,
     frame->f_frame = interp_frame;
 }
 
-static migrames::PyInterpreterFrame *create_pyinterpreterframe_object(serdes::DeserializedPyInterpreterFrame& frame_obj, 
+static sauerkraut::PyInterpreterFrame *create_pyinterpreterframe_object(serdes::DeserializedPyInterpreterFrame& frame_obj, 
                                                                       py_weakref<PyFrameObject> frame, 
                                                                       py_weakref<PyCodeObject> code
                                                                       ) {
-    migrames::PyInterpreterFrame *interp_frame = NULL;
+    sauerkraut::PyInterpreterFrame *interp_frame = NULL;
     interp_frame = AllocateFrameToMigrate(code->co_framesize);
     init_pyinterpreterframe(interp_frame, frame_obj, frame, code);
     return interp_frame;
@@ -521,8 +521,8 @@ static PyObject *_deserialize_frame(PyObject *bytes) {
         PyErr_Print();
         return NULL;
     }
-    loads_functor loads(migrames_state->pickle_loads);
-    dumps_functor dumps(migrames_state->pickle_dumps);
+    loads_functor loads(sauerkraut_state->pickle_loads);
+    dumps_functor dumps(sauerkraut_state->pickle_dumps);
     serdes::PyObjectSerdes po_serdes(loads, dumps);
     serdes::PyFrameSerdes frame_serdes{po_serdes};
 
@@ -553,7 +553,7 @@ static PyObject *run_deserialized_frame(PyObject *self, PyObject *args) {
     PyCodeObject *code = PyFrame_GetCode(frame);
     PyFrameObject *to_run = push_frame_for_running(tstate, frame->f_frame, code);
     if (to_run == NULL) {
-        PySys_WriteStderr("<Migrames>: failed to create frame on the framestack\n");
+        PySys_WriteStderr("<Sauerkraut>: failed to create frame on the framestack\n");
         return NULL;
     }
     PyObject *res = PyEval_EvalFrame(to_run);
@@ -588,25 +588,25 @@ static PyMethodDef MyMethods[] = {
     {NULL, NULL, 0, NULL}
 };
 
-static void migrames_free(void *m) {
-    delete migrames_state;
+static void sauerkraut_free(void *m) {
+    delete sauerkraut_state;
 }
 
-static struct PyModuleDef migrames_mod = {
+static struct PyModuleDef sauerkraut_mod = {
     PyModuleDef_HEAD_INIT,
-    "migrames",
+    "sauerkraut",
     "A module that defines the 'abcd' function",
     -1,
     MyMethods,
     NULL, // slot definitions
     NULL, // traverse function for GC
     NULL, // clear function for GC
-    migrames_free // free function for GC
+    sauerkraut_free // free function for GC
 };
 
-PyMODINIT_FUNC PyInit_migrames(void) {
-    migrames_state = new migrames_modulestate();
-    return PyModule_Create(&migrames_mod);
+PyMODINIT_FUNC PyInit_sauerkraut(void) {
+    sauerkraut_state = new sauerkraut_modulestate();
+    return PyModule_Create(&sauerkraut_mod);
 }
 
 }

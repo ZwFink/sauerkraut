@@ -1,9 +1,9 @@
-import migrames
+import sauerkraut
 import sys
 calls = 0
 
 def do_run_frame(frm):
-    return_val = migrames.run_frame(frm)
+    return_val = sauerkraut.run_frame(frm)
     print('return_val = ', return_val)
 
 def fun1(c):
@@ -15,7 +15,7 @@ def fun1(c):
         b = 45
         c = c + 10
         print('Calling inner')
-        frm_copy = migrames.copy_frame()
+        frm_copy = sauerkraut.copy_frame()
         print('returning from outer')
         x = 45
         if calls == 1:
@@ -27,7 +27,7 @@ def fun1(c):
         return x
 
 frm = fun1(13)
-migrames.run_frame(frm)
+sauerkraut.run_frame(frm)
 do_run_frame(frm)
 do_run_frame(frm)
 do_run_frame(frm)

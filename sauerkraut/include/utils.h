@@ -21,11 +21,11 @@ namespace utils {
            return code->co_nlocals;
        }
 
-     migrames::PyBitcodeInstruction *get_code_adaptive(py_weakref<PyCodeObject> code) {
-           return (migrames::PyBitcodeInstruction*) code->co_code_adaptive;
+     sauerkraut::PyBitcodeInstruction *get_code_adaptive(py_weakref<PyCodeObject> code) {
+           return (sauerkraut::PyBitcodeInstruction*) code->co_code_adaptive;
        }
 
-       int get_iframe_localsplus_size(migrames::PyInterpreterFrame *iframe) {
+       int get_iframe_localsplus_size(sauerkraut::PyInterpreterFrame *iframe) {
            PyCodeObject *code = (PyCodeObject*) iframe->f_executable.bits;
            if(NULL == code) {
                return 0;
@@ -114,7 +114,7 @@ namespace utils {
             return n_instructions * sizeof(_CodeUnit);
         }
 
-        Py_ssize_t get_current_stack_depth(migrames::PyInterpreterFrame *iframe) {
+        Py_ssize_t get_current_stack_depth(sauerkraut::PyInterpreterFrame *iframe) {
             // WARNING: The stack pointer is most often NULL when 
             // we stop a running Python function. Unless the function is stopped on a
             // yield instruction (which will not happen in this library, as we are stopped
@@ -137,9 +137,9 @@ namespace utils {
             // TODO: This ignores the following constructs which affect the stack depth:
             // 1. Try/except blocks; 2. Calls.
             // We consider only loops.
-            // migrames::PyCodeObject *code = (migrames::PyCodeObject*) iframe->f_executable.bits;
-            migrames::PyFrame *py_frame = (migrames::PyFrame*) frame;
-            migrames::PyInterpreterFrame *iframe = py_frame->f_frame;
+            // sauerkraut::PyCodeObject *code = (sauerkraut::PyCodeObject*) iframe->f_executable.bits;
+            sauerkraut::PyFrame *py_frame = (sauerkraut::PyFrame*) frame;
+            sauerkraut::PyInterpreterFrame *iframe = py_frame->f_frame;
             PyCodeObject *code = (PyCodeObject*) PyFrame_GetCode((PyFrameObject*)py_frame); //iframe->f_executable.bits;
 
             // divide by 2 to convert from bytes to instructions
@@ -147,8 +147,8 @@ namespace utils {
             PyObject *code_bytes = PyCode_GetCode(code);
             char *bitcode = PyBytes_AsString(code_bytes);
             Py_ssize_t n_instructions = Py_SIZE(code);
-            migrames::PyBitcodeInstruction *first_instr = (migrames::PyBitcodeInstruction*) bitcode;
-            migrames::PyBitcodeInstruction *instr = (migrames::PyBitcodeInstruction*) first_instr + offset;
+            sauerkraut::PyBitcodeInstruction *first_instr = (sauerkraut::PyBitcodeInstruction*) bitcode;
+            sauerkraut::PyBitcodeInstruction *instr = (sauerkraut::PyBitcodeInstruction*) first_instr + offset;
 
             Py_ssize_t num_for = 0;
             Py_ssize_t num_end = 0;
@@ -169,13 +169,13 @@ namespace utils {
         }
 
         void print_opcodes_til_now(PyObject *frame) {
-            migrames::PyFrame *py_frame = (migrames::PyFrame*) frame;
-            migrames::PyInterpreterFrame *iframe = py_frame->f_frame;
+            sauerkraut::PyFrame *py_frame = (sauerkraut::PyFrame*) frame;
+            sauerkraut::PyInterpreterFrame *iframe = py_frame->f_frame;
             PyCodeObject *code = (PyCodeObject*) PyFrame_GetCode((PyFrameObject*)py_frame);
-            migrames::PyBitcodeInstruction *first_instr = (migrames::PyBitcodeInstruction*) code->co_code_adaptive;
-            migrames::PyBitcodeInstruction *instr = (migrames::PyBitcodeInstruction*) iframe->instr_ptr;
+            sauerkraut::PyBitcodeInstruction *first_instr = (sauerkraut::PyBitcodeInstruction*) code->co_code_adaptive;
+            sauerkraut::PyBitcodeInstruction *instr = (sauerkraut::PyBitcodeInstruction*) iframe->instr_ptr;
         }
-        _PyStackRef *get_stack_base(migrames::PyInterpreterFrame *f) {
+        _PyStackRef *get_stack_base(sauerkraut::PyInterpreterFrame *f) {
             return f->localsplus + ((PyCodeObject*)f->f_executable.bits)->co_nlocalsplus;
         }
 

@@ -148,8 +148,8 @@ namespace serdes {
         template<typename Builder>
         flatbuffers::Offset<flatbuffers::Vector<uint8_t>> serialize_bitcode(Builder &builder, PyCodeObject *code) {
             auto n_instructions = Py_SIZE(code);
-            auto total_size_bytes = n_instructions * sizeof(migrames::PyBitcodeInstruction);
-            // const migrames::PyBitcodeInstruction *bitcode = (const migrames::PyBitcodeInstruction *) code->co_code_adaptive;
+            auto total_size_bytes = n_instructions * sizeof(sauerkraut::PyBitcodeInstruction);
+            // const sauerkraut::PyBitcodeInstruction *bitcode = (const sauerkraut::PyBitcodeInstruction *) code->co_code_adaptive;
             PyObject *code_instrs = PyCode_GetCode(code);
             char *bitcode = PyBytes_AsString(code_instrs);
 
@@ -306,7 +306,7 @@ namespace serdes {
         PyCodeObjectSerdes<PyObjectSerializer> code_serializer;
 
         template <typename Builder>
-        flatbuffers::Offset<flatbuffers::Vector<offsets::PyObjectOffset>> serialize_stack(Builder &builder, migrames::PyInterpreterFrame &obj, int stack_depth) {
+        flatbuffers::Offset<flatbuffers::Vector<offsets::PyObjectOffset>> serialize_stack(Builder &builder, sauerkraut::PyInterpreterFrame &obj, int stack_depth) {
             std::vector<offsets::PyObjectOffset> stack;
             stack.reserve(stack_depth);
 
@@ -321,7 +321,7 @@ namespace serdes {
             return stack_offset;
         }
         template<typename Builder>
-        flatbuffers::Offset<flatbuffers::Vector<offsets::PyObjectOffset>> serialize_fast_locals_plus(Builder &builder, migrames::PyInterpreterFrame &obj) {
+        flatbuffers::Offset<flatbuffers::Vector<offsets::PyObjectOffset>> serialize_fast_locals_plus(Builder &builder, sauerkraut::PyInterpreterFrame &obj) {
             auto n_locals = utils::py::get_code_nlocals((PyCodeObject*)obj.f_executable.bits);
             std::vector<offsets::PyObjectOffset> localsplus;
             localsplus.reserve(n_locals);
@@ -348,7 +348,7 @@ namespace serdes {
             code_serializer(po_serializer) {}
 
         template<typename Builder>
-        offsets::PyInterpreterFrameOffset serialize(Builder &builder, migrames::PyInterpreterFrame &obj, int stack_depth) {
+        offsets::PyInterpreterFrameOffset serialize(Builder &builder, sauerkraut::PyInterpreterFrame &obj, int stack_depth) {
             auto f_executable_ser = code_serializer.serialize(builder, (PyCodeObject*)obj.f_executable.bits);
             auto f_func_obj_ser = po_serializer.serialize(builder, obj.f_funcobj);
             // for now, we can't do this because of the modules
@@ -431,7 +431,7 @@ namespace serdes {
                           poh_serializer(po_serializer) {}
 
             template<typename Builder>
-            offsets::PyFrameOffset serialize(Builder &builder, migrames::PyFrame &obj) {
+            offsets::PyFrameOffset serialize(Builder &builder, sauerkraut::PyFrame &obj) {
                 PyInterpreterFrameSerdes interpreter_frame_serializer(po_serializer);
                 auto stack_size = utils::py::get_stack_state((PyObject*)&obj).size();
                 auto interp_frame_offset = interpreter_frame_serializer.serialize(builder, *obj.f_frame, stack_size);
