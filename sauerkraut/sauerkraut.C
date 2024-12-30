@@ -333,13 +333,13 @@ static PyObject *_copy_run_frame_from_capsule(PyObject *capsule) {
     return res;
 }
 
-static PyObject *run_frame(PyObject *self, PyObject *args) {
-    PyObject *capsule;
-    if (!PyArg_ParseTuple(args, "O", &capsule)) {
-        return NULL;
-    }
-    return _copy_run_frame_from_capsule(capsule);
-}
+// static PyObject *run_frame(PyObject *self, PyObject *args) {
+//     PyObject *capsule;
+//     if (!PyArg_ParseTuple(args, "O", &capsule)) {
+//         return NULL;
+//     }
+//     return _copy_run_frame_from_capsule(capsule);
+// }
 
 static PyObject* _serialize_frame_from_capsule(PyObject *capsule) {
     if (PyErr_Occurred()) {
@@ -543,7 +543,7 @@ static PyObject *_deserialize_frame(PyObject *bytes) {
 }
 
 
-static PyObject *run_deserialized_frame(PyObject *self, PyObject *args) {
+static PyObject *run_frame(PyObject *self, PyObject *args) {
     PyFrameObject *frame = NULL;
     if (!PyArg_ParseTuple(args, "O", &frame)) {
         return NULL;
@@ -581,10 +581,9 @@ static PyObject *deserialize_frame(PyObject *self, PyObject *args) {
 static PyMethodDef MyMethods[] = {
     {"copy_and_run_frame", copy_and_run_frame, METH_VARARGS, "Copy the current frame and run it"},
     {"copy_frame", copy_frame, METH_VARARGS, "Copy the current frame"},
-    {"run_frame", run_frame, METH_VARARGS, "Run the frame from the capsule"},
     {"serialize_frame", serialize_frame, METH_VARARGS, "Serialize the frame"},
     {"deserialize_frame", deserialize_frame, METH_VARARGS, "Deserialize the frame"},
-    {"run_deserialized_frame", run_deserialized_frame, METH_VARARGS, "Run the deserialized frame"},
+    {"run_frame", run_frame, METH_VARARGS, "Run the frame"},
     {NULL, NULL, 0, NULL}
 };
 

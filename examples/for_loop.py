@@ -35,7 +35,7 @@ with open('serialized_frame.bin', 'wb') as f:
 with open('serialized_frame.bin', 'rb') as f:
     read_frame = f.read()
 code = sauerkraut.deserialize_frame(read_frame)
-sauerkraut.run_deserialized_frame(code)
+sauerkraut.run_frame(code)
 
 print('Done')
 
