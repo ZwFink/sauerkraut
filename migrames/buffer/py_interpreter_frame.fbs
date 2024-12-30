@@ -24,6 +24,7 @@ table PyInterpreterFrame {
   // When deserializing, you must correctly allocate data
   // for the locals plus AND the evaluation stack
   locals_plus:[PyObject];
+  stack:[PyObject]; // this is not in the Python definition, but we need to capture the stack.
 }
 
 root_type PyInterpreterFrame;

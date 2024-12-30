@@ -296,6 +296,7 @@ namespace serdes {
         uint8_t owner;
 
         std::vector<pyobject_strongref> localsplus;
+        std::vector<pyobject_strongref> stack;
 
     };
 
@@ -304,6 +305,21 @@ namespace serdes {
         PyObjectSerializer po_serializer;
         PyCodeObjectSerdes<PyObjectSerializer> code_serializer;
 
+        template <typename Builder>
+        flatbuffers::Offset<flatbuffers::Vector<offsets::PyObjectOffset>> serialize_stack(Builder &builder, migrames::PyInterpreterFrame &obj, int stack_depth) {
+            std::vector<offsets::PyObjectOffset> stack;
+            stack.reserve(stack_depth);
+
+            _PyStackRef *stack_base = utils::py::get_stack_base(&obj);
+            for(size_t i = 0; i < stack_depth; i++) {
+                PyObject *stack_obj = (PyObject*) (stack_base[i].bits);
+                auto stack_obj_ser = po_serializer.serialize(builder, stack_obj);
+                stack.push_back(stack_obj_ser);
+            }
+
+            auto stack_offset = builder.CreateVector(stack);
+            return stack_offset;
+        }
         template<typename Builder>
         flatbuffers::Offset<flatbuffers::Vector<offsets::PyObjectOffset>> serialize_fast_locals_plus(Builder &builder, migrames::PyInterpreterFrame &obj) {
             auto n_locals = utils::py::get_code_nlocals((PyCodeObject*)obj.f_executable.bits);
@@ -332,17 +348,19 @@ namespace serdes {
             code_serializer(po_serializer) {}
 
         template<typename Builder>
-        offsets::PyInterpreterFrameOffset serialize(Builder &builder, migrames::PyInterpreterFrame &obj) {
+        offsets::PyInterpreterFrameOffset serialize(Builder &builder, migrames::PyInterpreterFrame &obj, int stack_depth) {
             auto f_executable_ser = code_serializer.serialize(builder, (PyCodeObject*)obj.f_executable.bits);
             auto f_func_obj_ser = po_serializer.serialize(builder, obj.f_funcobj);
             // for now, we can't do this because of the modules
             // auto f_globals_ser = po_serializer.serialize(builder, obj.f_globals);
             // auto f_builtins_ser = po_serializer.serialize(builder, obj.f_builtins);
 
+            _PyStackRef *stack_base = utils::py::get_stack_base(&obj);
             auto f_locals_ser = (NULL != obj.f_locals) ? 
                 std::optional{po_serializer.serialize(builder, obj.f_locals)} : std::nullopt;
 
             auto fast_locals_ser = serialize_fast_locals_plus(builder, obj);
+            auto stack_ser = serialize_stack(builder, obj, stack_depth);
 
             pyframe_buffer::PyInterpreterFrameBuilder frame_builder(builder);
             frame_builder.add_f_executable(f_executable_ser);
@@ -351,10 +369,11 @@ namespace serdes {
             }
 
             frame_builder.add_f_funcobj(f_func_obj_ser);
-            frame_builder.add_instr_offset(utils::py::get_instr_offset(obj.frame_obj));
+            frame_builder.add_instr_offset(utils::py::get_instr_offset<utils::py::Units::Bytes>(obj.frame_obj));
             frame_builder.add_return_offset(obj.return_offset);
             frame_builder.add_owner(obj.owner);
             frame_builder.add_locals_plus(fast_locals_ser);
+            frame_builder.add_stack(stack_ser);
 
             return frame_builder.Finish();
 
@@ -376,6 +395,12 @@ namespace serdes {
             deser.localsplus.reserve(localsplus->size());
             for(auto local : *localsplus) {
                 deser.localsplus.push_back(po_serializer.deserialize(local));
+            }
+
+            auto stack = obj->stack();
+            deser.stack.reserve(stack->size());
+            for(auto stack_obj : *stack) {
+                deser.stack.push_back(po_serializer.deserialize(stack_obj));
             }
 
             return deser;
@@ -408,7 +433,8 @@ namespace serdes {
             template<typename Builder>
             offsets::PyFrameOffset serialize(Builder &builder, migrames::PyFrame &obj) {
                 PyInterpreterFrameSerdes interpreter_frame_serializer(po_serializer);
-                auto interp_frame_offset = interpreter_frame_serializer.serialize(builder, *obj.f_frame);
+                auto stack_size = utils::py::get_stack_state((PyObject*)&obj).size();
+                auto interp_frame_offset = interpreter_frame_serializer.serialize(builder, *obj.f_frame, stack_size);
 
                 pyframe_buffer::PyFrameBuilder frame_builder(builder);
                 // Do NOT serialize the ob_base.
