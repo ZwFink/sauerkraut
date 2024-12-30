@@ -311,7 +311,7 @@ namespace serdes {
             stack.reserve(stack_depth);
 
             _PyStackRef *stack_base = utils::py::get_stack_base(&obj);
-            for(size_t i = 0; i < stack_depth; i++) {
+            for(size_t i = 0; i < (size_t) stack_depth; i++) {
                 PyObject *stack_obj = (PyObject*) (stack_base[i].bits);
                 auto stack_obj_ser = po_serializer.serialize(builder, stack_obj);
                 stack.push_back(stack_obj_ser);
@@ -355,7 +355,6 @@ namespace serdes {
             // auto f_globals_ser = po_serializer.serialize(builder, obj.f_globals);
             // auto f_builtins_ser = po_serializer.serialize(builder, obj.f_builtins);
 
-            _PyStackRef *stack_base = utils::py::get_stack_base(&obj);
             auto f_locals_ser = (NULL != obj.f_locals) ? 
                 std::optional{po_serializer.serialize(builder, obj.f_locals)} : std::nullopt;
 

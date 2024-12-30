@@ -139,14 +139,12 @@ namespace utils {
             // We consider only loops.
             // sauerkraut::PyCodeObject *code = (sauerkraut::PyCodeObject*) iframe->f_executable.bits;
             sauerkraut::PyFrame *py_frame = (sauerkraut::PyFrame*) frame;
-            sauerkraut::PyInterpreterFrame *iframe = py_frame->f_frame;
             PyCodeObject *code = (PyCodeObject*) PyFrame_GetCode((PyFrameObject*)py_frame); //iframe->f_executable.bits;
 
             // divide by 2 to convert from bytes to instructions
             Py_ssize_t offset = get_instr_offset<Units::Instructions>(py_frame);
             PyObject *code_bytes = PyCode_GetCode(code);
             char *bitcode = PyBytes_AsString(code_bytes);
-            Py_ssize_t n_instructions = Py_SIZE(code);
             sauerkraut::PyBitcodeInstruction *first_instr = (sauerkraut::PyBitcodeInstruction*) bitcode;
             sauerkraut::PyBitcodeInstruction *instr = (sauerkraut::PyBitcodeInstruction*) first_instr + offset;
 
@@ -168,13 +166,6 @@ namespace utils {
             return num_for - num_end;
         }
 
-        void print_opcodes_til_now(PyObject *frame) {
-            sauerkraut::PyFrame *py_frame = (sauerkraut::PyFrame*) frame;
-            sauerkraut::PyInterpreterFrame *iframe = py_frame->f_frame;
-            PyCodeObject *code = (PyCodeObject*) PyFrame_GetCode((PyFrameObject*)py_frame);
-            sauerkraut::PyBitcodeInstruction *first_instr = (sauerkraut::PyBitcodeInstruction*) code->co_code_adaptive;
-            sauerkraut::PyBitcodeInstruction *instr = (sauerkraut::PyBitcodeInstruction*) iframe->instr_ptr;
-        }
         _PyStackRef *get_stack_base(sauerkraut::PyInterpreterFrame *f) {
             return f->localsplus + ((PyCodeObject*)f->f_executable.bits)->co_nlocalsplus;
         }

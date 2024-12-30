@@ -279,15 +279,18 @@ static PyObject *copy_frame(PyObject *self, PyObject *args) {
 static PyObject *copy_and_run_frame(PyObject *self, PyObject *args) {
     using namespace utils;
     struct _frame *frame = (struct _frame*) PyEval_GetFrame();
-    _PyInterpreterFrame *to_copy = frame->f_frame;
     PyThreadState *tstate = PyThreadState_Get();
+    (void) tstate;
     PyCodeObject *code = PyFrame_GetCode(frame);
     assert(code != NULL);
     PyCodeObject *copy_code_obj = (PyCodeObject *)deepcopy_object((PyObject*)code);
 
     Py_ssize_t offset = py::get_instr_offset<py::Units::Bytes>(frame) + py::get_offset_for_skipping_call();
+    (void) offset;
     PyObject *FrameLocals = GetFrameLocalsFromFrame((PyObject*)frame);
+    (void) FrameLocals;
     PyObject *LocalCopy = PyDict_Copy(FrameLocals);
+    (void) LocalCopy;
 
     // PyFrameObject *new_frame = create_copied_frame(tstate, to_copy, copy_code_obj, LocalCopy, offset, 1, 0, 1, 1);
     PyFrameObject *new_frame = NULL;
@@ -300,38 +303,40 @@ static PyObject *copy_and_run_frame(PyObject *self, PyObject *args) {
     return res;
 }
 
-static PyObject *_copy_run_frame_from_capsule(PyObject *capsule) {
-    if (PyErr_Occurred()) {
-        PyErr_Print();
-        return NULL;
-    }
+// static PyObject *_copy_run_frame_from_capsule(PyObject *capsule) {
+//     if (PyErr_Occurred()) {
+//         PyErr_Print();
+//         return NULL;
+//     }
 
-    struct frame_copy_capsule *copy_capsule = (struct frame_copy_capsule *)PyCapsule_GetPointer(capsule, copy_frame_capsule_name);
-    if (copy_capsule == NULL) {
-        return NULL;
-    }
+//     struct frame_copy_capsule *copy_capsule = (struct frame_copy_capsule *)PyCapsule_GetPointer(capsule, copy_frame_capsule_name);
+//     if (copy_capsule == NULL) {
+//         return NULL;
+//     }
 
-    PyFrameObject *frame = copy_capsule->frame;
-    size_t offset = copy_capsule->offset;
-    _PyInterpreterFrame *to_copy = frame->f_frame;
-    PyThreadState *tstate = PyThreadState_Get();
-    PyCodeObject *code = PyFrame_GetCode(frame);
-    assert(code != NULL);
-    PyCodeObject *copy_code_obj = (PyCodeObject *)deepcopy_object((PyObject*)code);
+//     PyFrameObject *frame = copy_capsule->frame;
+//     _PyInterpreterFrame *to_copy = frame->f_frame;
+//     (void) to_copy;
+//     PyCodeObject *code = PyFrame_GetCode(frame);
+//     assert(code != NULL);
+//     PyCodeObject *copy_code_obj = (PyCodeObject *)deepcopy_object((PyObject*)code);
+//     (void) copy_code_obj;
 
-    PyObject *FrameLocals = GetFrameLocalsFromFrame((PyObject*)frame);
-    PyObject *LocalCopy = PyDict_Copy(FrameLocals);
+//     PyObject *FrameLocals = GetFrameLocalsFromFrame((PyObject*)frame);
+//     (void) FrameLocals;
+//     PyObject *LocalCopy = PyDict_Copy(FrameLocals);
+//     (void) LocalCopy;
 
-    // PyFrameObject *new_frame = create_copied_frame(tstate, to_copy, copy_code_obj, LocalCopy, offset, 1, 0, 1, 0);
-    PyFrameObject *new_frame = NULL;
+//     // PyFrameObject *new_frame = create_copied_frame(tstate, to_copy, copy_code_obj, LocalCopy, offset, 1, 0, 1, 0);
+//     PyFrameObject *new_frame = NULL;
 
-    PyObject *res = PyEval_EvalFrame(new_frame);
-    Py_DECREF(copy_code_obj);
-    Py_DECREF(LocalCopy);
-    Py_DECREF(FrameLocals);
+//     PyObject *res = PyEval_EvalFrame(new_frame);
+//     Py_DECREF(copy_code_obj);
+//     Py_DECREF(LocalCopy);
+//     Py_DECREF(FrameLocals);
 
-    return res;
-}
+//     return res;
+// }
 
 // static PyObject *run_frame(PyObject *self, PyObject *args) {
 //     PyObject *capsule;
@@ -491,12 +496,11 @@ static void init_pyinterpreterframe(sauerkraut::PyInterpreterFrame *interp_frame
     for(size_t i = 0; i < stack.size(); i++) {
         frame_stack_base[i].bits = (intptr_t) Py_NewRef(stack[i].borrow());
     }
-    for(size_t i = localsplus.size(); i < code->co_nlocalsplus; i++) {
+    for(size_t i = localsplus.size(); i < (size_t)code->co_nlocalsplus; i++) {
         interp_frame->localsplus[i].bits = 0;
     }
     interp_frame->instr_ptr = (sauerkraut::PyBitcodeInstruction*) 
         (utils::py::get_code_adaptive(code) + frame_obj.instr_offset/2);//utils::py::get_offset_for_skipping_call();
-    sauerkraut::PyBitcodeInstruction *this_instr = (sauerkraut::PyBitcodeInstruction*) interp_frame->instr_ptr;
     interp_frame->return_offset = frame_obj.return_offset;
     interp_frame->stackpointer = frame_stack_base + stack.size();
     // TODO: Check what happens when we make the owner the frame object instead of the thread.
