@@ -249,6 +249,7 @@ static PyObject *copy_frame(PyObject *self, PyObject *args) {
     using namespace utils;
     struct _frame *frame = (struct _frame*) PyEval_GetFrame();
     _PyInterpreterFrame *to_copy = frame->f_frame;
+    // utils::py::print_stack_pointed_obj(to_copy);
     PyThreadState *tstate = PyThreadState_Get();
     PyCodeObject *code = PyFrame_GetCode(frame);
     assert(code != NULL);
@@ -288,7 +289,8 @@ static PyObject *copy_and_run_frame(PyObject *self, PyObject *args) {
     PyObject *FrameLocals = GetFrameLocalsFromFrame((PyObject*)frame);
     PyObject *LocalCopy = PyDict_Copy(FrameLocals);
 
-    PyFrameObject *new_frame = create_copied_frame(tstate, to_copy, copy_code_obj, LocalCopy, offset, 1, 0, 1, 1);
+    // PyFrameObject *new_frame = create_copied_frame(tstate, to_copy, copy_code_obj, LocalCopy, offset, 1, 0, 1, 1);
+    PyFrameObject *new_frame = NULL;
 
     PyObject *res = PyEval_EvalFrame(new_frame);
     Py_DECREF(copy_code_obj);
@@ -320,7 +322,8 @@ static PyObject *_copy_run_frame_from_capsule(PyObject *capsule) {
     PyObject *FrameLocals = GetFrameLocalsFromFrame((PyObject*)frame);
     PyObject *LocalCopy = PyDict_Copy(FrameLocals);
 
-    PyFrameObject *new_frame = create_copied_frame(tstate, to_copy, copy_code_obj, LocalCopy, offset, 1, 0, 1, 0);
+    // PyFrameObject *new_frame = create_copied_frame(tstate, to_copy, copy_code_obj, LocalCopy, offset, 1, 0, 1, 0);
+    PyFrameObject *new_frame = NULL;
 
     PyObject *res = PyEval_EvalFrame(new_frame);
     Py_DECREF(copy_code_obj);
