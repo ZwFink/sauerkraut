@@ -1,6 +1,7 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 #include <stdbool.h>
+#include <vector>
 #include "flatbuffers/flatbuffers.h"
 #include "py_object_generated.h"
 #include "utils.h"
@@ -69,18 +70,6 @@ _PyInterpreterFrame *ThreadState_PushFrame(PyThreadState *tstate, size_t size) {
     return top;
 }
 
-void copy_stack(_PyInterpreterFrame *src, _PyInterpreterFrame *dest) {
-    if (src->stackpointer == NULL) {
-        return;
-    }
-    _PyStackRef *src_stack_base = _PyFrame_Stackbase(src);
-    _PyStackRef *dest_stack_base = _PyFrame_Stackbase(dest);
-    Py_ssize_t stack_size = src->stackpointer - src_stack_base;
-    memcpy(dest_stack_base, src_stack_base, stack_size * sizeof(_PyStackRef));
-    dest->stackpointer = dest_stack_base + stack_size;
-}
-
-
 
 PyAPI_FUNC(PyFrameObject *) PyFrame_New(PyThreadState *, PyCodeObject *,
                                         PyObject *, PyObject *);
@@ -139,6 +128,7 @@ struct frame_copy_capsule {
     // Strong reference
     PyFrameObject *frame;
     size_t offset;
+    utils::py::StackState stack_state;
 };
 
 static char copy_frame_capsule_name[] = "Frame Capsule Object";
@@ -149,10 +139,11 @@ void frame_copy_capsule_destroy(PyObject *capsule) {
     free(copy_capsule);
 }
 
-PyObject *frame_copy_capsule_create(PyFrameObject *frame, size_t offset) {
-    struct frame_copy_capsule *copy_capsule = (struct frame_copy_capsule *)malloc(sizeof(struct frame_copy_capsule));
+PyObject *frame_copy_capsule_create(PyFrameObject *frame, utils::py::StackState stack_state, size_t offset) {
+    struct frame_copy_capsule *copy_capsule = new struct frame_copy_capsule;
     copy_capsule->frame = frame;
     copy_capsule->offset = offset;
+    copy_capsule->stack_state = stack_state;
     return PyCapsule_New(copy_capsule, copy_frame_capsule_name, frame_copy_capsule_destroy);
 }
 
@@ -168,7 +159,23 @@ void copy_localsplus(_PyInterpreterFrame *to_copy, _PyInterpreterFrame *new_fram
     }
 }
 
-PyFrameObject *create_copied_frame(PyThreadState *tstate, _PyInterpreterFrame *to_copy, PyCodeObject *copy_code_obj, PyObject *LocalCopy, size_t offset, int push_frame, int deepcopy_localsplus, int set_previous, int copy_stack_flag) {
+void copy_stack(_PyInterpreterFrame *to_copy, _PyInterpreterFrame *new_frame, int stack_size, int deepcopy) {
+    _PyStackRef *src_stack_base = utils::py::get_stack_base(to_copy);
+    _PyStackRef *dest_stack_base = utils::py::get_stack_base(new_frame);
+
+    if(deepcopy) {
+        for(int i = 0; i < stack_size; i++) {
+            PyObject *stack_obj = (PyObject*) src_stack_base[i].bits;
+            PyObject *stack_obj_copy = deepcopy_object(stack_obj);
+            dest_stack_base[i].bits = (uintptr_t) stack_obj_copy;
+        }
+    } else {
+        memcpy(dest_stack_base, src_stack_base, stack_size * sizeof(_PyStackRef));
+    }
+}
+
+PyFrameObject *create_copied_frame(PyThreadState *tstate, _PyInterpreterFrame *to_copy, PyCodeObject *copy_code_obj, PyObject *LocalCopy, 
+                                   size_t offset, int push_frame, int deepcopy_localsplus, int set_previous, int stack_size, int copy_stack_flag) {
     int nlocals = copy_code_obj->co_nlocalsplus;
 
     PyFrameObject *new_frame = PyFrame_New(tstate, copy_code_obj, to_copy->f_globals, LocalCopy);
@@ -187,7 +194,6 @@ PyFrameObject *create_copied_frame(PyThreadState *tstate, _PyInterpreterFrame *t
 
     new_frame->f_frame = stack_frame;
 
-    copy_localsplus(to_copy, new_frame->f_frame, nlocals, deepcopy_localsplus);
 
     new_frame->f_frame->owner = to_copy->owner;
     new_frame->f_frame->previous = set_previous ? to_copy : NULL;
@@ -198,17 +204,18 @@ PyFrameObject *create_copied_frame(PyThreadState *tstate, _PyInterpreterFrame *t
     new_frame->f_frame->f_builtins = to_copy->f_builtins;
     new_frame->f_frame->f_locals = to_copy->f_locals;
     new_frame->f_frame->frame_obj = new_frame;
-    new_frame->f_frame->stackpointer = new_frame->f_frame->localsplus + nlocals;
+    new_frame->f_frame->stackpointer = NULL;
     new_frame->f_frame->instr_ptr = (_CodeUnit*) (copy_code_obj->co_code_adaptive + offset);
 
-    if (copy_stack_flag) {
-        copy_stack(to_copy, new_frame->f_frame);
-    }
+    copy_localsplus(to_copy, new_frame->f_frame, nlocals, deepcopy_localsplus);
+    copy_stack(to_copy, new_frame->f_frame, stack_size, 1);
 
     return new_frame;
 }
 
 PyFrameObject *push_frame_for_running(PyThreadState *tstate, _PyInterpreterFrame *to_push, PyCodeObject *code) {
+    // what about ownership? I'm thinking this should steal everything from to_push
+    // might create problems with the deallocation of the frame, though. Will have to see
     _PyInterpreterFrame *stack_frame = ThreadState_PushFrame(tstate, code->co_framesize);
     py_weakref<PyFrameObject> pyframe_object = to_push->frame_obj;
     if(stack_frame == NULL) {
@@ -217,9 +224,10 @@ PyFrameObject *push_frame_for_running(PyThreadState *tstate, _PyInterpreterFrame
     }
 
     copy_localsplus(to_push, stack_frame, code->co_nlocalsplus, 0);
-    auto offset = utils::py::get_instr_offset(to_push->frame_obj);
+    auto offset = utils::py::get_instr_offset<utils::py::Units::Bytes>(to_push->frame_obj);
     
     stack_frame->owner = to_push->owner;
+    // needs to be the currently executing frame
     stack_frame->previous = PyEval_GetFrame()->f_frame;
     stack_frame->f_funcobj = to_push->f_funcobj;
     stack_frame->f_executable.bits = to_push->f_executable.bits;
@@ -227,9 +235,11 @@ PyFrameObject *push_frame_for_running(PyThreadState *tstate, _PyInterpreterFrame
     stack_frame->f_builtins = to_push->f_builtins;
     stack_frame->f_locals = to_push->f_locals;
     stack_frame->frame_obj = *pyframe_object;
-    stack_frame->stackpointer = stack_frame->localsplus + code->co_nlocalsplus;
-    stack_frame->instr_ptr = (_CodeUnit*) (code->co_code_adaptive + (offset-8));
-    copy_stack(to_push, stack_frame);
+    stack_frame->instr_ptr = (_CodeUnit*) (code->co_code_adaptive + (offset));
+    //TODO: Should actually get the stack size here
+    auto stack_depth = utils::py::get_current_stack_depth(to_push);
+    copy_stack(to_push, stack_frame, stack_depth, 0);
+    stack_frame->stackpointer = stack_frame->localsplus + code->co_nlocalsplus + stack_depth;
 
     pyframe_object->f_frame = stack_frame;
     return *pyframe_object;
@@ -239,18 +249,26 @@ static PyObject *copy_frame(PyObject *self, PyObject *args) {
     using namespace utils;
     struct _frame *frame = (struct _frame*) PyEval_GetFrame();
     _PyInterpreterFrame *to_copy = frame->f_frame;
+    // utils::py::print_stack_pointed_obj(to_copy);
     PyThreadState *tstate = PyThreadState_Get();
     PyCodeObject *code = PyFrame_GetCode(frame);
     assert(code != NULL);
     PyCodeObject *copy_code_obj = (PyCodeObject *)deepcopy_object((PyObject*)code);
 
-    Py_ssize_t offset = py::get_instr_offset(frame) + py::get_offset_for_skipping_call();
+    Py_ssize_t offset = py::get_instr_offset<utils::py::Units::Bytes>(frame) + py::get_offset_for_skipping_call();
     PyObject *FrameLocals = GetFrameLocalsFromFrame((PyObject*)frame);
-    PyObject *LocalCopy = PyDict_Copy(FrameLocals);
+    // PyObject *LocalCopy = PyDict_Copy(FrameLocals);
 
-    PyFrameObject *new_frame = create_copied_frame(tstate, to_copy, copy_code_obj, LocalCopy, offset, 0, 1, 0, 1);
+    // We want to copy these here because we want to "freeze" the locals
+    // at this point; with a shallow copy, changes to locals will propagate to
+    // the copied frame between its copy and serialization.
+    PyObject *LocalCopy = deepcopy_object(FrameLocals);
 
-    PyObject *capsule = frame_copy_capsule_create(new_frame, offset);
+
+    auto stack_state = utils::py::get_stack_state((PyObject*)frame);
+    PyFrameObject *new_frame = create_copied_frame(tstate, to_copy, copy_code_obj, LocalCopy, offset, 0, 1, 0, stack_state.size(), 1);
+
+    PyObject *capsule = frame_copy_capsule_create(new_frame, stack_state, offset);
     Py_DECREF(copy_code_obj);
     Py_DECREF(LocalCopy);
     Py_DECREF(FrameLocals);
@@ -267,11 +285,12 @@ static PyObject *copy_and_run_frame(PyObject *self, PyObject *args) {
     assert(code != NULL);
     PyCodeObject *copy_code_obj = (PyCodeObject *)deepcopy_object((PyObject*)code);
 
-    Py_ssize_t offset = py::get_instr_offset(frame) + py::get_offset_for_skipping_call();
+    Py_ssize_t offset = py::get_instr_offset<py::Units::Bytes>(frame) + py::get_offset_for_skipping_call();
     PyObject *FrameLocals = GetFrameLocalsFromFrame((PyObject*)frame);
     PyObject *LocalCopy = PyDict_Copy(FrameLocals);
 
-    PyFrameObject *new_frame = create_copied_frame(tstate, to_copy, copy_code_obj, LocalCopy, offset, 1, 0, 1, 1);
+    // PyFrameObject *new_frame = create_copied_frame(tstate, to_copy, copy_code_obj, LocalCopy, offset, 1, 0, 1, 1);
+    PyFrameObject *new_frame = NULL;
 
     PyObject *res = PyEval_EvalFrame(new_frame);
     Py_DECREF(copy_code_obj);
@@ -303,7 +322,8 @@ static PyObject *_copy_run_frame_from_capsule(PyObject *capsule) {
     PyObject *FrameLocals = GetFrameLocalsFromFrame((PyObject*)frame);
     PyObject *LocalCopy = PyDict_Copy(FrameLocals);
 
-    PyFrameObject *new_frame = create_copied_frame(tstate, to_copy, copy_code_obj, LocalCopy, offset, 1, 0, 1, 0);
+    // PyFrameObject *new_frame = create_copied_frame(tstate, to_copy, copy_code_obj, LocalCopy, offset, 1, 0, 1, 0);
+    PyFrameObject *new_frame = NULL;
 
     PyObject *res = PyEval_EvalFrame(new_frame);
     Py_DECREF(copy_code_obj);
@@ -376,7 +396,6 @@ static void init_code(PyCodeObject *obj, serdes::DeserializedCodeObject &code) {
     obj->co_linetable = Py_NewRef(code.co_linetable.borrow());
 
     memcpy(obj->co_code_adaptive, code.co_code_adaptive.data(), code.co_code_adaptive.size());
-    migrames::PyBitcodeInstruction *bitcode = (migrames::PyBitcodeInstruction *) obj->co_code_adaptive;
 
     // initialize the rest of the fields
     obj->co_weakreflist = NULL;
@@ -467,16 +486,19 @@ static void init_pyinterpreterframe(migrames::PyInterpreterFrame *interp_frame,
     for(size_t i = 0; i < localsplus.size(); i++) {
         interp_frame->localsplus[i].bits = (intptr_t) Py_NewRef(localsplus[i].borrow());
     }
-
+    auto stack = frame_obj.stack;
+    _PyStackRef *frame_stack_base = utils::py::get_stack_base(interp_frame);
+    for(size_t i = 0; i < stack.size(); i++) {
+        frame_stack_base[i].bits = (intptr_t) Py_NewRef(stack[i].borrow());
+    }
     for(size_t i = localsplus.size(); i < code->co_nlocalsplus; i++) {
         interp_frame->localsplus[i].bits = 0;
     }
-
     interp_frame->instr_ptr = (migrames::PyBitcodeInstruction*) 
-        (utils::py::get_code_adaptive(code) + frame_obj.instr_offset/2);
-    auto opcode = interp_frame->instr_ptr->opcode;
+        (utils::py::get_code_adaptive(code) + frame_obj.instr_offset/2);//utils::py::get_offset_for_skipping_call();
+    migrames::PyBitcodeInstruction *this_instr = (migrames::PyBitcodeInstruction*) interp_frame->instr_ptr;
     interp_frame->return_offset = frame_obj.return_offset;
-    interp_frame->stackpointer = interp_frame->localsplus + code->co_nlocalsplus;
+    interp_frame->stackpointer = frame_stack_base + stack.size();
     // TODO: Check what happens when we make the owner the frame object instead of the thread.
     // Might allow us to skip a copy when calling this frame
     interp_frame->owner = frame_obj.owner;
@@ -508,7 +530,6 @@ static PyObject *_deserialize_frame(PyObject *bytes) {
 
     auto serframe = pyframe_buffer::GetPyFrame(data);
     auto deserframe = frame_serdes.deserialize(serframe);
-    utils::py::print_object(deserframe.f_frame.f_funcobj.borrow());
 
     // FRAME_OWNED_BY_THREAD
     assert(deserframe.f_frame.owner == 0);
