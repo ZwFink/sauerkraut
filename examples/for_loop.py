@@ -1,4 +1,4 @@
-import migrames
+import sauerkraut
 import sys
 calls = 0
 
@@ -15,7 +15,7 @@ def fun1(c):
         for j in range(6):
             if i == 0 and j == 0:
                 print("Copying frame")
-                frm_copy = migrames.copy_frame()
+                frm_copy = sauerkraut.copy_frame()
                 # 
             if calls == 1:
                 g = 5
@@ -29,13 +29,13 @@ def fun1(c):
     return 3
 
 frm = fun1(13)
-serframe = migrames.serialize_frame(frm)
+serframe = sauerkraut.serialize_frame(frm)
 with open('serialized_frame.bin', 'wb') as f:
     f.write(serframe)
 with open('serialized_frame.bin', 'rb') as f:
     read_frame = f.read()
-code = migrames.deserialize_frame(read_frame)
-migrames.run_deserialized_frame(code)
+code = sauerkraut.deserialize_frame(read_frame)
+sauerkraut.run_frame(code)
 
 print('Done')
 

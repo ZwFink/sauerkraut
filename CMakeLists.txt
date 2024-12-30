@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15...3.30)
-project(migrames VERSION 0.1
-        DESCRIPTION "Migratable Python Frames" 
+project(sauerkraut VERSION 0.1
+        DESCRIPTION "Sauerkraut: Serialization for Python's Control State" 
         LANGUAGES CXX)
 
 # Set the C++ standard
@@ -22,5 +22,5 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 
 include_directories(${FlatBuffersIncludePath})
-add_subdirectory(migrames)
+add_subdirectory(sauerkraut)
 

@@ -22,6 +22,6 @@ endforeach()
 message(STATUS "Flatbuffers generated headers: ${FLATBUFFER_GENERATED_HEADERS}")
 # Create a custom target for generation
 add_custom_target(generate_flatbuffers DEPENDS ${FLATBUFFER_GENERATED_HEADERS})
-target_include_directories(migrames PUBLIC ${CMAKE_CURRENT_BINARY_DIR} ${FLATBUFFER_INCLUDE_DIRS} 
+target_include_directories(sauerkraut PUBLIC ${CMAKE_CURRENT_BINARY_DIR} ${FLATBUFFER_INCLUDE_DIRS} 
                            ${CMAKE_CURRENT_SOURCE_DIR}/include
                            )

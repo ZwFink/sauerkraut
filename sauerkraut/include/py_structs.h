@@ -48,7 +48,7 @@ typedef struct _PyInterpreterFrame {
 
 } // extern "C"
 
-namespace migrames {
+namespace sauerkraut {
     using PyInterpreterFrame = struct _PyInterpreterFrame;
     using PyFrame = struct _frame;
     using PyBitcodeInstruction = _CodeUnit;
