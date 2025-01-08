@@ -59,16 +59,12 @@ Sauerkraut leverages intimate knowledge of CPython internals, and as such is vul
 Currently, Sauerkraut is built for the development version of Python 3.14, and will be ported to earlier versions.
 Known to work with CPython on commit `7a2d77c903f29d7ea08b870b8e3fa2130f667a59`'
 
+We recommend to use the Docker container, which can be built or used with:
 ```bash
-spack env create sauerkraut spack.yaml
-spack env activate sauerkraut -p
-spack concretize
-spack install -j$JOBS
-
-mkdir build && cd build
-cmake -DPython_LIBRARY=$CPYTHON_LOCATION/libpython3.14d.so -DPython_EXECUTABLE=$CPYTHON_LOCATION/install_dir/bin/python3.14 -DProtobuf_ROOT=$PWD/spack/var/spack/environments/sauerkraut/.spack-env/view  ..
-make
-export PYTHONPATH=$PWD
-cd ..
-$HOME/cpython/python ./examples/copy_then_run.py
+# This should take 5-10 minutes
+docker build -t sauerkraut -f Dockerfile .
+docker run --name="sauerkraut_img" -it library/sauerkraut
+# Now we are in the container
+cd /sauerkraut/examples
+python3 copy_then_serialize.py
 ```
