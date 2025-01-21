@@ -36,10 +36,26 @@ namespace utils {
         enum class Units { Bytes, Instructions };
 
         template <Units Unit>
-        Py_ssize_t get_instr_offset(struct _frame *frame) {
-            PyCodeObject *code = PyFrame_GetCode(frame);
+        Py_ssize_t get_instr_offset(py_weakref<struct _frame> frame) {
+            PyCodeObject *code = PyFrame_GetCode(*frame);
             Py_ssize_t first_instr_addr = (Py_ssize_t) code->co_code_adaptive;
             Py_ssize_t current_instr_addr = (Py_ssize_t) frame->f_frame->instr_ptr;
+            Py_ssize_t offset = current_instr_addr - first_instr_addr;
+
+            if constexpr (Unit == Units::Bytes) {
+                return offset;
+            } else if constexpr (Unit == Units::Instructions) {
+                return offset / 2; // Assuming each instruction is 2 bytes
+            }
+
+            Py_DECREF(code);
+        }
+
+        template <Units Unit>
+        Py_ssize_t get_instr_offset(py_weakref<sauerkraut::PyInterpreterFrame> iframe) {
+            PyCodeObject *code = (PyCodeObject*) iframe->f_executable.bits;
+            Py_ssize_t first_instr_addr = (Py_ssize_t) code->co_code_adaptive;
+            Py_ssize_t current_instr_addr = (Py_ssize_t) iframe->instr_ptr;
             Py_ssize_t offset = current_instr_addr - first_instr_addr;
 
             if constexpr (Unit == Units::Bytes) {
@@ -112,6 +128,14 @@ namespace utils {
 
         Py_ssize_t get_code_size(Py_ssize_t n_instructions) {
             return n_instructions * sizeof(_CodeUnit);
+        }
+
+        Py_ssize_t skip_current_call_instruction(py_weakref<PyFrameObject> frame) {
+            PyCodeObject *code = PyFrame_GetCode(*frame);
+            Py_ssize_t offset = get_instr_offset<Units::Bytes>(*frame) + get_offset_for_skipping_call();
+            frame->f_frame->instr_ptr = (_CodeUnit*) (code->co_code_adaptive + offset);
+            Py_DECREF(code);
+            return offset;
         }
 
         Py_ssize_t get_current_stack_depth(sauerkraut::PyInterpreterFrame *iframe) {

@@ -2,6 +2,7 @@
 #include <Python.h>
 #include <stdbool.h>
 #include <vector>
+#include <memory>
 #include "flatbuffers/flatbuffers.h"
 #include "py_object_generated.h"
 #include "utils.h"
@@ -49,10 +50,14 @@ class loads_functor {
     }
 };
 
+
 static sauerkraut_modulestate *sauerkraut_state;
 
 extern "C" {
 
+struct frame_copy_capsule;
+static PyObject *_serialize_frame_direct_from_capsule(frame_copy_capsule *copy_capsule);
+static PyObject *_serialize_frame_from_capsule(PyObject *capsule);
 
 static inline _PyStackRef *_PyFrame_Stackbase(_PyInterpreterFrame *f) {
     return f->localsplus + ((PyCodeObject*)f->f_executable.bits)->co_nlocalsplus;
@@ -124,12 +129,11 @@ PyObject *deepcopy_object(PyObject *obj) {
     return copy_obj;
 }
 
-struct frame_copy_capsule {
+typedef struct frame_copy_capsule {
     // Strong reference
     PyFrameObject *frame;
-    size_t offset;
     utils::py::StackState stack_state;
-};
+} frame_copy_capsule;
 
 static char copy_frame_capsule_name[] = "Frame Capsule Object";
 
@@ -139,11 +143,15 @@ void frame_copy_capsule_destroy(PyObject *capsule) {
     free(copy_capsule);
 }
 
-PyObject *frame_copy_capsule_create(PyFrameObject *frame, utils::py::StackState stack_state, size_t offset) {
+frame_copy_capsule *frame_copy_capsule_create_direct(PyFrameObject *frame, utils::py::StackState stack_state) {
     struct frame_copy_capsule *copy_capsule = new struct frame_copy_capsule;
     copy_capsule->frame = frame;
-    copy_capsule->offset = offset;
     copy_capsule->stack_state = stack_state;
+    return copy_capsule;
+}
+
+PyObject *frame_copy_capsule_create(PyFrameObject *frame, utils::py::StackState stack_state) {
+    auto *copy_capsule = frame_copy_capsule_create_direct(frame, stack_state);
     return PyCapsule_New(copy_capsule, copy_frame_capsule_name, frame_copy_capsule_destroy);
 }
 
@@ -175,7 +183,7 @@ void copy_stack(_PyInterpreterFrame *to_copy, _PyInterpreterFrame *new_frame, in
 }
 
 PyFrameObject *create_copied_frame(PyThreadState *tstate, _PyInterpreterFrame *to_copy, PyCodeObject *copy_code_obj, PyObject *LocalCopy, 
-                                   size_t offset, int push_frame, int deepcopy_localsplus, int set_previous, int stack_size, int copy_stack_flag) {
+                                   int push_frame, int deepcopy_localsplus, int set_previous, int stack_size, int copy_stack_flag) {
     int nlocals = copy_code_obj->co_nlocalsplus;
 
     PyFrameObject *new_frame = PyFrame_New(tstate, copy_code_obj, to_copy->f_globals, LocalCopy);
@@ -205,7 +213,9 @@ PyFrameObject *create_copied_frame(PyThreadState *tstate, _PyInterpreterFrame *t
     new_frame->f_frame->f_locals = to_copy->f_locals;
     new_frame->f_frame->frame_obj = new_frame;
     new_frame->f_frame->stackpointer = NULL;
+    auto offset = utils::py::get_instr_offset<utils::py::Units::Bytes>(to_copy);
     new_frame->f_frame->instr_ptr = (_CodeUnit*) (copy_code_obj->co_code_adaptive + offset);
+    utils::py::skip_current_call_instruction(new_frame);
 
     copy_localsplus(to_copy, new_frame->f_frame, nlocals, deepcopy_localsplus);
     copy_stack(to_copy, new_frame->f_frame, stack_size, 1);
@@ -245,7 +255,7 @@ PyFrameObject *push_frame_for_running(PyThreadState *tstate, _PyInterpreterFrame
     return *pyframe_object;
 }
 
-static PyObject *copy_frame(PyObject *self, PyObject *args) {
+static PyObject *_copy_frame(PyObject *self, PyObject *args) {
     using namespace utils;
     struct _frame *frame = (struct _frame*) PyEval_GetFrame();
     _PyInterpreterFrame *to_copy = frame->f_frame;
@@ -255,7 +265,6 @@ static PyObject *copy_frame(PyObject *self, PyObject *args) {
     assert(code != NULL);
     PyCodeObject *copy_code_obj = (PyCodeObject *)deepcopy_object((PyObject*)code);
 
-    Py_ssize_t offset = py::get_instr_offset<utils::py::Units::Bytes>(frame) + py::get_offset_for_skipping_call();
     PyObject *FrameLocals = GetFrameLocalsFromFrame((PyObject*)frame);
     // PyObject *LocalCopy = PyDict_Copy(FrameLocals);
 
@@ -266,14 +275,45 @@ static PyObject *copy_frame(PyObject *self, PyObject *args) {
 
 
     auto stack_state = utils::py::get_stack_state((PyObject*)frame);
-    PyFrameObject *new_frame = create_copied_frame(tstate, to_copy, copy_code_obj, LocalCopy, offset, 0, 1, 0, stack_state.size(), 1);
+    PyFrameObject *new_frame = create_copied_frame(tstate, to_copy, copy_code_obj, LocalCopy, 0, 1, 0, stack_state.size(), 1);
 
-    PyObject *capsule = frame_copy_capsule_create(new_frame, stack_state, offset);
+    PyObject *capsule = frame_copy_capsule_create(new_frame, stack_state);
     Py_DECREF(copy_code_obj);
     Py_DECREF(LocalCopy);
     Py_DECREF(FrameLocals);
 
     return capsule;
+}
+
+static PyObject *_copy_serialize_frame(PyObject *self, PyObject *args) {
+    // here, we'll copy the frame "directly" into the serialized buffer
+    using namespace utils;
+    struct _frame *frame = (struct _frame*) PyEval_GetFrame();
+    auto stack_state = utils::py::get_stack_state((PyObject*)frame);
+    py::skip_current_call_instruction(frame);
+    std::unique_ptr<frame_copy_capsule> capsule(frame_copy_capsule_create_direct(frame, stack_state));
+
+    PyObject *ret = _serialize_frame_direct_from_capsule(capsule.get());
+    return ret;
+}
+
+static PyObject *copy_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
+    PyObject *capsule;
+    int serialize = 0;  // Default to True
+    
+    static char *kwlist[] = {"serialize", NULL};
+    
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|p", kwlist, &serialize)) {
+        return NULL;
+    }
+
+    if(serialize) {
+        return _copy_serialize_frame(self, args);
+    } else {
+        return _copy_frame(self, args);
+    }
+
+    return Py_None;
 }
 
 static PyObject *copy_and_run_frame(PyObject *self, PyObject *args) {
@@ -346,17 +386,7 @@ static PyObject *copy_and_run_frame(PyObject *self, PyObject *args) {
 //     return _copy_run_frame_from_capsule(capsule);
 // }
 
-static PyObject* _serialize_frame_from_capsule(PyObject *capsule) {
-    if (PyErr_Occurred()) {
-        PyErr_Print();
-        return NULL;
-    }
-
-    struct frame_copy_capsule *copy_capsule = (struct frame_copy_capsule *)PyCapsule_GetPointer(capsule, copy_frame_capsule_name);
-    if (copy_capsule == NULL) {
-        return NULL;
-    }
-
+static PyObject *_serialize_frame_direct_from_capsule(frame_copy_capsule *copy_capsule) {
     loads_functor loads(sauerkraut_state->pickle_loads);
     dumps_functor dumps(sauerkraut_state->pickle_dumps);
 
@@ -371,6 +401,20 @@ static PyObject* _serialize_frame_from_capsule(PyObject *capsule) {
     auto size = builder.GetSize();
     PyObject *bytes = PyBytes_FromStringAndSize((const char *)buf, size);
     return bytes;
+}
+
+static PyObject* _serialize_frame_from_capsule(PyObject *capsule) {
+    if (PyErr_Occurred()) {
+        PyErr_Print();
+        return NULL;
+    }
+
+    struct frame_copy_capsule *copy_capsule = (struct frame_copy_capsule *)PyCapsule_GetPointer(capsule, copy_frame_capsule_name);
+    if (copy_capsule == NULL) {
+        return NULL;
+    }
+
+    return _serialize_frame_direct_from_capsule(copy_capsule);
 }
 
 static void init_code(PyCodeObject *obj, serdes::DeserializedCodeObject &code) {
@@ -584,8 +628,8 @@ static PyObject *deserialize_frame(PyObject *self, PyObject *args) {
 
 static PyMethodDef MyMethods[] = {
     {"copy_and_run_frame", copy_and_run_frame, METH_VARARGS, "Copy the current frame and run it"},
-    {"copy_frame", copy_frame, METH_VARARGS, "Copy the current frame"},
     {"serialize_frame", serialize_frame, METH_VARARGS, "Serialize the frame"},
+    {"copy_frame", (PyCFunction) copy_frame, METH_VARARGS | METH_KEYWORDS, "Copy the current frame"},
     {"deserialize_frame", deserialize_frame, METH_VARARGS, "Deserialize the frame"},
     {"run_frame", run_frame, METH_VARARGS, "Run the frame"},
     {NULL, NULL, 0, NULL}
