@@ -50,6 +50,10 @@ class py_strongref {
         obj = new_obj;
     }
 
+    operator bool() {
+        return obj != NULL;
+    }
+
     static py_strongref steal(T *obj) {
         py_strongref<T> ref;
         ref = obj;
@@ -81,6 +85,10 @@ class py_weakref {
     void operator=(T *new_obj) {
         // always steals
         obj = new_obj;
+    }
+
+    operator bool() {
+        return obj != NULL;
     }
 
     T *operator->() {

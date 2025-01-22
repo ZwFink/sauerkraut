@@ -63,18 +63,6 @@ static inline _PyStackRef *_PyFrame_Stackbase(_PyInterpreterFrame *f) {
     return f->localsplus + ((PyCodeObject*)f->f_executable.bits)->co_nlocalsplus;
 }
 
-bool ThreadState_HasStackSpace(PyThreadState *state, int size) {
-    return state->datastack_top != NULL && size < state->datastack_limit - state->datastack_top;
-}
-_PyInterpreterFrame *ThreadState_PushFrame(PyThreadState *tstate, size_t size) {
-    if(!ThreadState_HasStackSpace(tstate, size)) {
-        return NULL;
-    }
-    _PyInterpreterFrame *top = (_PyInterpreterFrame*) tstate->datastack_top;
-    tstate->datastack_top += size;
-    return top;
-}
-
 
 PyAPI_FUNC(PyFrameObject *) PyFrame_New(PyThreadState *, PyCodeObject *,
                                         PyObject *, PyObject *);
@@ -112,12 +100,6 @@ PyObject *GetFrameLocalsFromFrame(PyObject *frame) {
 
     assert(PyMapping_Check(locals));
     return locals;
-}
-
-
-// Allocate something that's not part of Python
-_PyInterpreterFrame *AllocateFrameToMigrate(size_t size) {
-    return (_PyInterpreterFrame *)malloc(size * sizeof(PyObject*));
 }
 
 PyObject *deepcopy_object(PyObject *obj) {
@@ -190,9 +172,9 @@ PyFrameObject *create_copied_frame(PyThreadState *tstate, _PyInterpreterFrame *t
 
     _PyInterpreterFrame *stack_frame;
     if (push_frame) {
-        stack_frame = ThreadState_PushFrame(tstate, copy_code_obj->co_framesize);
+        stack_frame = utils::py::AllocateFrame(tstate, copy_code_obj->co_framesize);
     } else {
-        stack_frame = AllocateFrameToMigrate(copy_code_obj->co_framesize);
+        stack_frame = utils::py::AllocateFrame(copy_code_obj->co_framesize);
     }
 
     if(stack_frame == NULL) {
@@ -226,7 +208,7 @@ PyFrameObject *create_copied_frame(PyThreadState *tstate, _PyInterpreterFrame *t
 PyFrameObject *push_frame_for_running(PyThreadState *tstate, _PyInterpreterFrame *to_push, PyCodeObject *code) {
     // what about ownership? I'm thinking this should steal everything from to_push
     // might create problems with the deallocation of the frame, though. Will have to see
-    _PyInterpreterFrame *stack_frame = ThreadState_PushFrame(tstate, code->co_framesize);
+    _PyInterpreterFrame *stack_frame = utils::py::ThreadState_PushFrame(tstate, code->co_framesize);
     py_weakref<PyFrameObject> pyframe_object = to_push->frame_obj;
     if(stack_frame == NULL) {
         PySys_WriteStderr("<Sauerkraut>: Could not allocate memory for new frame\n");
@@ -556,15 +538,20 @@ static void init_pyinterpreterframe(sauerkraut::PyInterpreterFrame *interp_frame
 
 static sauerkraut::PyInterpreterFrame *create_pyinterpreterframe_object(serdes::DeserializedPyInterpreterFrame& frame_obj, 
                                                                       py_weakref<PyFrameObject> frame, 
-                                                                      py_weakref<PyCodeObject> code
-                                                                      ) {
+                                                                      py_weakref<PyCodeObject> code,
+                                                                      bool inplace=false) {
     sauerkraut::PyInterpreterFrame *interp_frame = NULL;
-    interp_frame = AllocateFrameToMigrate(code->co_framesize);
+    if(inplace) {
+        PyThreadState *tstate = PyThreadState_Get();
+        interp_frame = utils::py::AllocateFrame(tstate, code->co_framesize);
+    } else {
+        interp_frame = utils::py::AllocateFrame(code->co_framesize);
+    }
     init_pyinterpreterframe(interp_frame, frame_obj, frame, code);
     return interp_frame;
 }
 
-static PyObject *_deserialize_frame(PyObject *bytes) {
+static PyObject *_deserialize_frame(PyObject *bytes, bool inplace=false) {
     if(PyErr_Occurred()) {
         PyErr_Print();
         return NULL;
@@ -584,13 +571,13 @@ static PyObject *_deserialize_frame(PyObject *bytes) {
 
     PyCodeObject *code = create_pycode_object(deserframe.f_frame.f_executable);
     PyFrameObject *frame = create_pyframe_object(deserframe, code);
-    // TODO: Should we just create the interpreter frame on the framestack, instead of doing it here?
-    create_pyinterpreterframe_object(deserframe.f_frame, frame, code);
+    create_pyinterpreterframe_object(deserframe.f_frame, frame, code, inplace);
 
     return (PyObject*) frame;
 }
 
 
+// First allocates frame on the frame stack, then runs it
 static PyObject *run_frame(PyObject *self, PyObject *args) {
     PyFrameObject *frame = NULL;
     if (!PyArg_ParseTuple(args, "O", &frame)) {
@@ -617,20 +604,32 @@ static PyObject *serialize_frame(PyObject *self, PyObject *args) {
     return _serialize_frame_from_capsule(capsule);
 }
 
-static PyObject *deserialize_frame(PyObject *self, PyObject *args) {
+static PyObject *deserialize_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyObject *bytes;
-    if (!PyArg_ParseTuple(args, "O", &bytes)) {
+    int run = 0;  // Default to False
+    
+    static char *kwlist[] = {"frame", "run", NULL};
+
+    
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|p", kwlist, &bytes, &run)) {
         return NULL;
     }
 
-    return _deserialize_frame(bytes);
+    PyObject *deser_result = _deserialize_frame(bytes, run);
+    PyObject *ret_obj = deser_result;
+
+    if(run) {
+        ret_obj = PyEval_EvalFrame((PyFrameObject*)deser_result);
+    } 
+
+    return ret_obj;
 }
 
 static PyMethodDef MyMethods[] = {
     {"copy_and_run_frame", copy_and_run_frame, METH_VARARGS, "Copy the current frame and run it"},
     {"serialize_frame", serialize_frame, METH_VARARGS, "Serialize the frame"},
     {"copy_frame", (PyCFunction) copy_frame, METH_VARARGS | METH_KEYWORDS, "Copy the current frame"},
-    {"deserialize_frame", deserialize_frame, METH_VARARGS, "Deserialize the frame"},
+    {"deserialize_frame", (PyCFunction) deserialize_frame, METH_VARARGS | METH_KEYWORDS, "Deserialize the frame"},
     {"run_frame", run_frame, METH_VARARGS, "Run the frame"},
     {NULL, NULL, 0, NULL}
 };
