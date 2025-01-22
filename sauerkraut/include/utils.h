@@ -65,6 +65,25 @@ namespace utils {
             }
         }
 
+        bool ThreadState_HasStackSpace(py_weakref<PyThreadState> state, int size) {
+            return state->datastack_top != NULL && size < state->datastack_limit - state->datastack_top;
+        }
+
+        _PyInterpreterFrame *ThreadState_PushFrame(py_weakref<PyThreadState> tstate, size_t size) {
+            if(!ThreadState_HasStackSpace(tstate, size)) {
+                return NULL;
+            }
+            _PyInterpreterFrame *top = (_PyInterpreterFrame*) tstate->datastack_top;
+            tstate->datastack_top += size;
+            return top;
+        }
+
+        _PyInterpreterFrame *AllocateFrame(size_t size) {
+            return (_PyInterpreterFrame*) malloc(size * sizeof(PyObject*));
+        }
+        _PyInterpreterFrame *AllocateFrame(py_weakref<PyThreadState> tstate, size_t size) {
+            return (_PyInterpreterFrame*) ThreadState_PushFrame(*tstate, size);
+        }
 
         Py_ssize_t get_offset_for_skipping_call() {
             return 5 * sizeof(_CodeUnit);
