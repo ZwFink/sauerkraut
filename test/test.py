@@ -98,7 +98,7 @@ def test_for_loop():
         f.write(serframe)
     with open('serialized_frame.bin', 'rb') as f:
         read_frame = f.read()
-    code = skt.deserialize_frame(read_frame, run=True)
+    code = skt.deserialize_frame(read_frame)
     iters_run = skt.run_frame(code)
 
     assert iters_run == 18
