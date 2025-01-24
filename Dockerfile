@@ -36,7 +36,7 @@ env PATH=/cpython-install/bin:$PATH
 RUN \
 	. /spack/share/spack/setup-env.sh && spack env activate sauerkraut && git clone https://github.com/ZwFink/sauerkraut.git /sauerkraut &&\
 	cd /sauerkraut && mkdir build && cd build &&\
-	cmake -DPython_LIBRARY=/cpython-install/lib/libpython3.14d.so -DPython_EXECUTABLE=`which python3` -DFLATBUFFER_INCLUDE_DIRS=/spack/var/spack/environments/sauerkraut/.spack-env/view/include/ .. &&\
+	cmake -DPython_LIBRARY=/cpython-install/lib/libpython3.13d.so -DPython_EXECUTABLE=`which python3` -DFLATBUFFER_INCLUDE_DIRS=/spack/var/spack/environments/sauerkraut/.spack-env/view/include/ .. &&\
 	make &&\
 	python3 -m pip install numpy
 
