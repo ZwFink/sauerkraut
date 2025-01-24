@@ -1,5 +1,6 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
+#include "sauerkraut_cpython_compat.h"
 #include <stdbool.h>
 #include <vector>
 #include <memory>
@@ -194,7 +195,11 @@ PyFrameObject *create_copied_frame(PyThreadState *tstate, _PyInterpreterFrame *t
     new_frame->f_frame->f_builtins = to_copy->f_builtins;
     new_frame->f_frame->f_locals = to_copy->f_locals;
     new_frame->f_frame->frame_obj = new_frame;
+    #if SAUERKRAUT_PY314
     new_frame->f_frame->stackpointer = NULL;
+    #elif SAUERKRAUT_PY313
+    new_frame->f_frame->stacktop = 0;
+    #endif
     auto offset = utils::py::get_instr_offset<utils::py::Units::Bytes>(to_copy);
     new_frame->f_frame->instr_ptr = (_CodeUnit*) (copy_code_obj->co_code_adaptive + offset);
     utils::py::skip_current_call_instruction(new_frame);
@@ -228,10 +233,13 @@ PyFrameObject *push_frame_for_running(PyThreadState *tstate, _PyInterpreterFrame
     stack_frame->f_locals = to_push->f_locals;
     stack_frame->frame_obj = *pyframe_object;
     stack_frame->instr_ptr = (_CodeUnit*) (code->co_code_adaptive + (offset));
-    //TODO: Should actually get the stack size here
     auto stack_depth = utils::py::get_current_stack_depth(to_push);
     copy_stack(to_push, stack_frame, stack_depth, 0);
+    #if SAUERKRAUT_PY314
     stack_frame->stackpointer = stack_frame->localsplus + code->co_nlocalsplus + stack_depth;
+    #elif SAUERKRAUT_PY313
+    stack_frame->stacktop = code->co_nlocalsplus + stack_depth;
+    #endif
 
     pyframe_object->f_frame = stack_frame;
     return *pyframe_object;
@@ -307,7 +315,7 @@ static PyObject *copy_and_run_frame(PyObject *self, PyObject *args) {
     assert(code != NULL);
     PyCodeObject *copy_code_obj = (PyCodeObject *)deepcopy_object((PyObject*)code);
 
-    Py_ssize_t offset = py::get_instr_offset<py::Units::Bytes>(frame) + py::get_offset_for_skipping_call();
+    Py_ssize_t offset = py::get_instr_offset<py::Units::Bytes>(frame) + py::get_offset_for_skipping_call(py::get_current_opcode(frame));
     (void) offset;
     PyObject *FrameLocals = GetFrameLocalsFromFrame((PyObject*)frame);
     (void) FrameLocals;
@@ -528,7 +536,11 @@ static void init_pyinterpreterframe(sauerkraut::PyInterpreterFrame *interp_frame
     interp_frame->instr_ptr = (sauerkraut::PyBitcodeInstruction*) 
         (utils::py::get_code_adaptive(code) + frame_obj.instr_offset/2);//utils::py::get_offset_for_skipping_call();
     interp_frame->return_offset = frame_obj.return_offset;
+    #if SAUERKRAUT_PY314
     interp_frame->stackpointer = frame_stack_base + stack.size();
+    #elif SAUERKRAUT_PY313
+    interp_frame->stacktop = code->co_nlocalsplus + stack.size();
+    #endif
     // TODO: Check what happens when we make the owner the frame object instead of the thread.
     // Might allow us to skip a copy when calling this frame
     interp_frame->owner = frame_obj.owner;

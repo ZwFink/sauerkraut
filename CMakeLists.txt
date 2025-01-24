@@ -12,7 +12,7 @@ set(CMAKE_BUILD_TYPE Debug)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -g -Wall")
 
 # Find Python (ensure the version matches your Python version)
-find_package(Python 3.14 COMPONENTS Interpreter Development REQUIRED)
+find_package(Python 3.13 COMPONENTS Interpreter Development REQUIRED)
 
 # Find Protobuf
 find_package(FlatBuffers REQUIRED)

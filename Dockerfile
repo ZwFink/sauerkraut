@@ -15,7 +15,7 @@ RUN ln -fs /usr/share/zoneinfo/UTC /etc/localtime && \
 RUN \
 	git clone https://github.com/python/cpython.git && \
 	cd cpython && \
-	git checkout 7a2d77c903f29d7ea08b870b8e3fa2130f667a59 && \
+	git checkout v3.13.1 && \
 	./configure --with-pydebug --enable-shared --prefix=/cpython-install && \
 	make install -j4
 
@@ -37,7 +37,8 @@ RUN \
 	. /spack/share/spack/setup-env.sh && spack env activate sauerkraut && git clone https://github.com/ZwFink/sauerkraut.git /sauerkraut &&\
 	cd /sauerkraut && mkdir build && cd build &&\
 	cmake -DPython_LIBRARY=/cpython-install/lib/libpython3.14d.so -DPython_EXECUTABLE=`which python3` -DFLATBUFFER_INCLUDE_DIRS=/spack/var/spack/environments/sauerkraut/.spack-env/view/include/ .. &&\
-	make
+	make &&\
+	python3 -m pip install numpy
 
 env PYTHONPATH=/sauerkraut/build
 

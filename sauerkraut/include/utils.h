@@ -5,6 +5,7 @@
 #include <opcode_ids.h>
 #include "py_structs.h"
 #include "pyref.h"
+#include <opcode_ids.h>
 #include <map>
 
 namespace utils {
@@ -50,6 +51,9 @@ namespace utils {
 
             Py_DECREF(code);
         }
+        char get_current_opcode(py_weakref<struct _frame> frame) {
+            return frame->f_frame->instr_ptr->opcode;
+        }
 
         template <Units Unit>
         Py_ssize_t get_instr_offset(py_weakref<sauerkraut::PyInterpreterFrame> iframe) {
@@ -85,8 +89,17 @@ namespace utils {
             return (_PyInterpreterFrame*) ThreadState_PushFrame(*tstate, size);
         }
 
-        Py_ssize_t get_offset_for_skipping_call() {
+        // TODO: This should use units
+        Py_ssize_t get_offset_for_skipping_call(char opcode) {
+            #if SAUERKRAUT_PY314
             return 5 * sizeof(_CodeUnit);
+            #elif SAUERKRAUT_PY313
+            if(opcode == CALL) {
+            return 5 * sizeof(_CodeUnit);
+            } else if(opcode == CALL_KW) {
+            return 2 * sizeof(_CodeUnit);
+            }
+            #endif
         }
 
         void print_object(PyObject *obj) {
@@ -151,7 +164,8 @@ namespace utils {
 
         Py_ssize_t skip_current_call_instruction(py_weakref<PyFrameObject> frame) {
             PyCodeObject *code = PyFrame_GetCode(*frame);
-            Py_ssize_t offset = get_instr_offset<Units::Bytes>(*frame) + get_offset_for_skipping_call();
+            Py_ssize_t base_offset = get_instr_offset<Units::Bytes>(*frame);
+            Py_ssize_t offset = get_instr_offset<Units::Bytes>(*frame) + get_offset_for_skipping_call(get_current_opcode(frame));
             frame->f_frame->instr_ptr = (_CodeUnit*) (code->co_code_adaptive + offset);
             Py_DECREF(code);
             return offset;
@@ -165,11 +179,15 @@ namespace utils {
             // This is NOT the method
             // you should use when trying to get the stack depth of a running frame.
             // Use get_stack_depth(PyObject *) instead.
-            assert(NULL != iframe->stackpointer);
-            assert(iframe->stackpointer >= iframe->localsplus);
             PyCodeObject *code = (PyCodeObject*) iframe->f_executable.bits;
             auto n_localsplus = get_code_nlocalsplus(code);
+            #if SAUERKRAUT_PY314
+            assert(NULL != iframe->stackpointer);
+            assert(iframe->stackpointer >= iframe->localsplus);
             return (Py_ssize_t) (iframe->stackpointer - ( iframe->localsplus + n_localsplus));
+            #elif SAUERKRAUT_PY313
+            return (Py_ssize_t) iframe->stacktop - n_localsplus;
+            #endif
         }
 
         Py_ssize_t get_stack_depth(PyObject *frame) {

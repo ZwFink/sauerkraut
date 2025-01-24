@@ -1,7 +1,6 @@
 #ifndef PY_STRUCTS_HH_INCLUDED
 #define PY_STRUCTS_HH_INCLUDED
-#define PY_SSIZE_T_CLEAN
-#include <Python.h>
+#include "sauerkraut_cpython_compat.h"
 
 extern "C" {
 typedef union _PyStackRef {
@@ -39,7 +38,11 @@ typedef struct _PyInterpreterFrame {
     PyObject *f_locals; /* Strong reference, may be NULL. Only valid if not on C stack */
     PyFrameObject *frame_obj; /* Strong reference, may be NULL. Only valid if not on C stack */
     _CodeUnit *instr_ptr; /* Instruction currently executing (or about to begin) */
+    #if SAUERKRAUT_PY314
     _PyStackRef *stackpointer;
+    #elif SAUERKRAUT_PY313
+    int stacktop;
+    #endif
     uint16_t return_offset;  /* Only relevant during a function call */
     char owner;
     /* Locals and stack */
