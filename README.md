@@ -56,9 +56,7 @@ skt.run_frame(code)
 
 ## Building
 Sauerkraut leverages intimate knowledge of CPython internals, and as such is vulnerable to changes in the CPython API and VM.
-Currently, Sauerkraut is built for the development version of Python 3.14, and will be ported to earlier versions.
-Known to work with CPython on commit `7a2d77c903f29d7ea08b870b8e3fa2130f667a59`'
-
+Currently, Sauerkraut supports Python 3.13 and the development version of Python 3.14
 We recommend to use the Docker container, which can be built or used with:
 ```bash
 # This should take 5-10 minutes
@@ -68,3 +66,4 @@ docker run --name="sauerkraut_img" -it library/sauerkraut
 cd /sauerkraut/examples
 python3 copy_then_serialize.py
 ```
+The Docker container builds Sauerkraut with Python 3.13.
