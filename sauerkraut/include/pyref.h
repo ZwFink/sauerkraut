@@ -98,4 +98,10 @@ class py_weakref {
 
 using pyobject_strongref = py_strongref<PyObject>;
 using pyobject_weakref = py_weakref<PyObject>;
+
+template <typename T>
+py_weakref<T> make_weakref(T* ptr) {
+    return py_weakref<T>(ptr);
+}
+
 #endif
