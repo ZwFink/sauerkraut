@@ -160,7 +160,7 @@ void copy_stack(py_weakref<sauerkraut::PyInterpreterFrame> to_copy,
 
     if(deepcopy) {
         for(int i = 0; i < stack_size; i++) {
-            py_weakref<PyObject> stack_obj{(PyObject*)src_stack_base[i].bits};
+            auto stack_obj = make_weakref((PyObject*)src_stack_base[i].bits);
             PyObject *stack_obj_copy = deepcopy_object(stack_obj);
             dest_stack_base[i].bits = (uintptr_t) stack_obj_copy;
         }
@@ -198,8 +198,8 @@ PyFrameObject *create_copied_frame(py_weakref<PyThreadState> tstate,
 
     new_frame_ref->owner = to_copy->owner;
     new_frame_ref->previous = set_previous ? *to_copy : NULL;
-    new_frame_ref->f_funcobj = deepcopy_object(py_weakref<PyObject>{to_copy->f_funcobj});
-    new_frame_ref->f_executable.bits = (uintptr_t)deepcopy_object(py_weakref<PyObject>{(PyObject*)to_copy->f_executable.bits});
+    new_frame_ref->f_funcobj = deepcopy_object(make_weakref(to_copy->f_funcobj));
+    new_frame_ref->f_executable.bits = (uintptr_t)deepcopy_object(make_weakref((PyObject*)to_copy->f_executable.bits));
     new_frame_ref->f_globals = to_copy->f_globals;
     new_frame_ref->f_builtins = to_copy->f_builtins;
     new_frame_ref->f_locals = to_copy->f_locals;
