@@ -73,10 +73,10 @@ typedef struct serialized_obj {
     size_t size;
 } serialized_obj;
 
-PyObject *GetFrameLocalsFromFrame(PyObject *frame) {
-    PyFrameObject *current_frame = (PyFrameObject *)frame;
-
-    PyObject *locals = PyFrame_GetLocals(current_frame);
+PyObject *GetFrameLocalsFromFrame(py_weakref<PyObject> frame) {
+    py_weakref<PyFrameObject> current_frame{(PyFrameObject *)*frame};
+    
+    PyObject *locals = PyFrame_GetLocals(*current_frame);
     if (locals == NULL) {
         return NULL;
     }
@@ -103,12 +103,12 @@ PyObject *GetFrameLocalsFromFrame(PyObject *frame) {
     return locals;
 }
 
-PyObject *deepcopy_object(PyObject *obj) {
-    if (obj == NULL) {
+PyObject *deepcopy_object(py_weakref<PyObject> obj) {
+    if (*obj == NULL) {
         return NULL;
     }
-    PyObject *deepcopy = *sauerkraut_state->deepcopy;
-    PyObject *copy_obj = PyObject_CallFunction(deepcopy, "O", obj);
+    py_weakref<PyObject> deepcopy{*sauerkraut_state->deepcopy};
+    PyObject *copy_obj = PyObject_CallFunction(*deepcopy, "O", *obj);
     return copy_obj;
 }
 
@@ -126,22 +126,24 @@ void frame_copy_capsule_destroy(PyObject *capsule) {
     free(copy_capsule);
 }
 
-frame_copy_capsule *frame_copy_capsule_create_direct(PyFrameObject *frame, utils::py::StackState stack_state) {
+frame_copy_capsule *frame_copy_capsule_create_direct(py_weakref<PyFrameObject> frame, utils::py::StackState stack_state) {
     struct frame_copy_capsule *copy_capsule = new struct frame_copy_capsule;
-    copy_capsule->frame = frame;
+    copy_capsule->frame = (PyFrameObject*)Py_NewRef(*frame);  // Cast after NewRef
     copy_capsule->stack_state = stack_state;
     return copy_capsule;
 }
 
-PyObject *frame_copy_capsule_create(PyFrameObject *frame, utils::py::StackState stack_state) {
+PyObject *frame_copy_capsule_create(py_weakref<PyFrameObject> frame, utils::py::StackState stack_state) {
     auto *copy_capsule = frame_copy_capsule_create_direct(frame, stack_state);
     return PyCapsule_New(copy_capsule, copy_frame_capsule_name, frame_copy_capsule_destroy);
 }
 
-void copy_localsplus(_PyInterpreterFrame *to_copy, _PyInterpreterFrame *new_frame, int nlocals, int deepcopy) {
+void copy_localsplus(py_weakref<sauerkraut::PyInterpreterFrame> to_copy, 
+                    py_weakref<sauerkraut::PyInterpreterFrame> new_frame, 
+                    int nlocals, int deepcopy) {
     if (deepcopy) {
         for (int i = 0; i < nlocals; i++) {
-            PyObject *local = (PyObject*) to_copy->localsplus[i].bits;
+            py_weakref<PyObject> local{(PyObject*)to_copy->localsplus[i].bits};
             PyObject *local_copy = deepcopy_object(local);
             new_frame->localsplus[i].bits = (uintptr_t)local_copy;
         }
@@ -150,13 +152,15 @@ void copy_localsplus(_PyInterpreterFrame *to_copy, _PyInterpreterFrame *new_fram
     }
 }
 
-void copy_stack(_PyInterpreterFrame *to_copy, _PyInterpreterFrame *new_frame, int stack_size, int deepcopy) {
-    _PyStackRef *src_stack_base = utils::py::get_stack_base(to_copy);
-    _PyStackRef *dest_stack_base = utils::py::get_stack_base(new_frame);
+void copy_stack(py_weakref<sauerkraut::PyInterpreterFrame> to_copy, 
+               py_weakref<sauerkraut::PyInterpreterFrame> new_frame, 
+               int stack_size, int deepcopy) {
+    _PyStackRef *src_stack_base = utils::py::get_stack_base(*to_copy);
+    _PyStackRef *dest_stack_base = utils::py::get_stack_base(*new_frame);
 
     if(deepcopy) {
         for(int i = 0; i < stack_size; i++) {
-            PyObject *stack_obj = (PyObject*) src_stack_base[i].bits;
+            py_weakref<PyObject> stack_obj{(PyObject*)src_stack_base[i].bits};
             PyObject *stack_obj_copy = deepcopy_object(stack_obj);
             dest_stack_base[i].bits = (uintptr_t) stack_obj_copy;
         }
@@ -165,47 +169,52 @@ void copy_stack(_PyInterpreterFrame *to_copy, _PyInterpreterFrame *new_frame, in
     }
 }
 
-PyFrameObject *create_copied_frame(PyThreadState *tstate, _PyInterpreterFrame *to_copy, PyCodeObject *copy_code_obj, PyObject *LocalCopy, 
-                                   int push_frame, int deepcopy_localsplus, int set_previous, int stack_size, int copy_stack_flag) {
-    int nlocals = copy_code_obj->co_nlocalsplus;
+PyFrameObject *create_copied_frame(py_weakref<PyThreadState> tstate, 
+                                 py_weakref<sauerkraut::PyInterpreterFrame> to_copy, 
+                                 py_weakref<PyCodeObject> code_obj, 
+                                 py_weakref<PyObject> LocalCopy,
+                                 int push_frame, int deepcopy_localsplus, 
+                                 int set_previous, int stack_size, 
+                                 int copy_stack_flag) {
+    int nlocals = code_obj->co_nlocalsplus;
 
-    PyFrameObject *new_frame = PyFrame_New(tstate, copy_code_obj, to_copy->f_globals, LocalCopy);
+    PyFrameObject *new_frame = PyFrame_New(*tstate, *code_obj, to_copy->f_globals, *LocalCopy);
 
     _PyInterpreterFrame *stack_frame;
     if (push_frame) {
-        stack_frame = utils::py::AllocateFrame(tstate, copy_code_obj->co_framesize);
+        stack_frame = utils::py::AllocateFrame(*tstate, code_obj->co_framesize);
     } else {
-        stack_frame = utils::py::AllocateFrame(copy_code_obj->co_framesize);
+        stack_frame = utils::py::AllocateFrame(code_obj->co_framesize);
     }
 
     if(stack_frame == NULL) {
+        Py_DECREF(new_frame);
         PySys_WriteStderr("<Sauerkraut>: Could not allocate memory for new frame\n");
         return NULL;
     }
 
     new_frame->f_frame = stack_frame;
+    py_weakref<sauerkraut::PyInterpreterFrame> new_frame_ref{new_frame->f_frame};
 
-
-    new_frame->f_frame->owner = to_copy->owner;
-    new_frame->f_frame->previous = set_previous ? to_copy : NULL;
-    new_frame->f_frame->f_funcobj = deepcopy_object(to_copy->f_funcobj);
-    PyObject *executable_copy = deepcopy_object((PyObject*) to_copy->f_executable.bits);
-    new_frame->f_frame->f_executable.bits = (uintptr_t)executable_copy;
-    new_frame->f_frame->f_globals = to_copy->f_globals;
-    new_frame->f_frame->f_builtins = to_copy->f_builtins;
-    new_frame->f_frame->f_locals = to_copy->f_locals;
-    new_frame->f_frame->frame_obj = new_frame;
+    new_frame_ref->owner = to_copy->owner;
+    new_frame_ref->previous = set_previous ? *to_copy : NULL;
+    new_frame_ref->f_funcobj = deepcopy_object(py_weakref<PyObject>{to_copy->f_funcobj});
+    new_frame_ref->f_executable.bits = (uintptr_t)deepcopy_object(py_weakref<PyObject>{(PyObject*)to_copy->f_executable.bits});
+    new_frame_ref->f_globals = to_copy->f_globals;
+    new_frame_ref->f_builtins = to_copy->f_builtins;
+    new_frame_ref->f_locals = to_copy->f_locals;
+    new_frame_ref->frame_obj = new_frame;
     #if SAUERKRAUT_PY314
     new_frame->f_frame->stackpointer = NULL;
     #elif SAUERKRAUT_PY313
     new_frame->f_frame->stacktop = 0;
     #endif
     auto offset = utils::py::get_instr_offset<utils::py::Units::Bytes>(to_copy);
-    new_frame->f_frame->instr_ptr = (_CodeUnit*) (copy_code_obj->co_code_adaptive + offset);
+    new_frame->f_frame->instr_ptr = (_CodeUnit*) (code_obj->co_code_adaptive + offset);
     utils::py::skip_current_call_instruction(new_frame);
 
-    copy_localsplus(to_copy, new_frame->f_frame, nlocals, deepcopy_localsplus);
-    copy_stack(to_copy, new_frame->f_frame, stack_size, 1);
+    copy_localsplus(to_copy, new_frame_ref, nlocals, deepcopy_localsplus);
+    copy_stack(to_copy, new_frame_ref, stack_size, 1);
 
     return new_frame;
 }
