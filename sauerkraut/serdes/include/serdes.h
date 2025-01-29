@@ -1,7 +1,6 @@
 #ifndef SERDES_HH_INCLUDED
 #define SERDES_HH_INCLUDED
-#define PY_SSIZE_T_CLEAN
-#include <Python.h>
+#include "sauerkraut_cpython_compat.h"
 #include <iostream>
 #include "flatbuffers/flatbuffers.h"
 #include "py_object_generated.h"

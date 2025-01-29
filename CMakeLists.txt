@@ -19,6 +19,7 @@ find_package(FlatBuffers REQUIRED)
 
 # Include directories (your source directory)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/sauerkraut/include)
 
 
 include_directories(${FlatBuffersIncludePath})
