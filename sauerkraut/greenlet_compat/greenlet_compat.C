@@ -1,11 +1,8 @@
-// #include "greenlet_compat.h"
-#define PY_SSIZE_T_CLEAN
-#include <Python.h>
+#include "greenlet_compat.h"
 #include <greenlet.h>
 
 struct _greenlet;
-// Forward declare the greenlet check function
-PyObject* green_getframe(struct _greenlet* self, void* context);  // Changed to match exact symbol
+PyObject* green_getframe(struct _greenlet* self, void* context);
 
 namespace greenlet {
     bool is_greenlet(PyObject *obj) {

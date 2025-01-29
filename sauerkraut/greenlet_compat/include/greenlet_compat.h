@@ -5,7 +5,6 @@
 
 namespace greenlet {
     bool is_greenlet(PyObject *obj);
-    // PyObject *get_parent(PyObject *obj);
     PyFrameObject *getframe(PyObject *obj);
     void init_greenlet();
 }
