@@ -1,4 +1,6 @@
 import sauerkraut as skt
+import greenlet
+import numpy as np
 calls = 0
 
 def test1_fn(c):
@@ -103,7 +105,28 @@ def test_for_loop():
 
     assert iters_run == 18
 
+def greenlet_fn(c):
+    a = np.array([1, 2, 3])
+    greenlet.getcurrent().parent.switch()
+    a += 1
+    print(f'c={c}, a={a}')
+    greenlet.getcurrent().parent.switch()
+    return 3
+
+def test_greenlet():
+    gr = greenlet.greenlet(greenlet_fn)
+    gr.switch(13)
+    serframe = skt.copy_frame_from_greenlet(gr, serialize=True)
+    with open('serialized_frame.bin', 'wb') as f:
+        f.write(serframe)
+    with open('serialized_frame.bin', 'rb') as f:
+        read_frame = f.read()
+    code = skt.deserialize_frame(read_frame)
+    gr = greenlet.greenlet(skt.run_frame)
+    gr.switch(code)
+
 
 test_copy_then_serialize()
 test_combined_copy_serialize()
 test_for_loop()
+test_greenlet()

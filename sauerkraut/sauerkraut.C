@@ -227,6 +227,7 @@ PyFrameObject *push_frame_for_running(PyThreadState *tstate, _PyInterpreterFrame
     py_weakref<PyFrameObject> pyframe_object = to_push->frame_obj;
     if(stack_frame == NULL) {
         PySys_WriteStderr("<Sauerkraut>: Could not allocate memory for new frame\n");
+        PySys_WriteStderr("<Sauerkraut>: Tried to allocate frame of size %d\n", code->co_framesize);
         return NULL;
     }
 
@@ -235,7 +236,12 @@ PyFrameObject *push_frame_for_running(PyThreadState *tstate, _PyInterpreterFrame
     
     stack_frame->owner = to_push->owner;
     // needs to be the currently executing frame
-    stack_frame->previous = PyEval_GetFrame()->f_frame;
+    py_weakref<PyFrameObject> current_frame{(PyFrameObject*) PyEval_GetFrame()};
+    if(!current_frame) {
+        stack_frame->previous = NULL;
+    } else {
+    stack_frame->previous = current_frame->f_frame;
+    }
     stack_frame->f_funcobj = to_push->f_funcobj;
     stack_frame->f_executable.bits = to_push->f_executable.bits;
     stack_frame->f_globals = to_push->f_globals;
@@ -606,16 +612,10 @@ static PyObject *_deserialize_frame(PyObject *bytes, bool inplace=false) {
     return (PyObject*) frame;
 }
 
-
-// First allocates frame on the frame stack, then runs it
-static PyObject *run_frame(PyObject *self, PyObject *args) {
-    PyFrameObject *frame = NULL;
-    if (!PyArg_ParseTuple(args, "O", &frame)) {
-        return NULL;
-    }
-
+static PyObject *run_frame_direct(py_weakref<PyFrameObject> frame) {
     PyThreadState *tstate = PyThreadState_Get();
-    PyCodeObject *code = PyFrame_GetCode(frame);
+    // Isn't this a strongref?
+    PyCodeObject *code = PyFrame_GetCode(*frame);
     PyFrameObject *to_run = push_frame_for_running(tstate, frame->f_frame, code);
     if (to_run == NULL) {
         PySys_WriteStderr("<Sauerkraut>: failed to create frame on the framestack\n");
@@ -623,6 +623,17 @@ static PyObject *run_frame(PyObject *self, PyObject *args) {
     }
     PyObject *res = PyEval_EvalFrame(to_run);
     return res;
+
+}
+
+// First allocates frame on the frame stack, then runs it
+static PyObject *run_frame(PyObject *self, PyObject *args) {
+    PyFrameObject *frame = NULL;
+    if (!PyArg_ParseTuple(args, "O", &frame)) {
+        return NULL;
+    }
+    py_weakref<PyFrameObject> frame_ref = frame;
+    return run_frame_direct(frame_ref);
 }
 
 static PyObject *serialize_frame(PyObject *self, PyObject *args) {
@@ -670,12 +681,26 @@ static PyObject *copy_frame_from_greenlet(PyObject *self, PyObject *args, PyObje
     return _copy_frame_object(frame);
 }
 
+static PyObject *_resume_greenlet(py_weakref<PyFrameObject> frame) {
+    return run_frame_direct(frame);
+}
+
+static PyObject *resume_greenlet(PyObject *self, PyObject *args) {
+    PyObject *frame;
+    if (!PyArg_ParseTuple(args, "O", &frame)) {
+        return NULL;
+    }
+    py_weakref<PyFrameObject> frame_ref = (PyFrameObject*)frame;
+    return _resume_greenlet(frame_ref);
+}
+
 static PyMethodDef MyMethods[] = {
     {"copy_and_run_frame", copy_and_run_frame, METH_VARARGS, "Copy the current frame and run it"},
     {"serialize_frame", serialize_frame, METH_VARARGS, "Serialize the frame"},
     {"copy_frame", (PyCFunction) copy_frame, METH_VARARGS | METH_KEYWORDS, "Copy the current frame"},
     {"deserialize_frame", (PyCFunction) deserialize_frame, METH_VARARGS | METH_KEYWORDS, "Deserialize the frame"},
     {"run_frame", run_frame, METH_VARARGS, "Run the frame"},
+    {"resume_greenlet", (PyCFunction) resume_greenlet, METH_VARARGS, "Resume the frame from a greenlet"},
     {"copy_frame_from_greenlet", (PyCFunction) copy_frame_from_greenlet, METH_VARARGS | METH_KEYWORDS, "Copy the frame from a greenlet"},
     {NULL, NULL, 0, NULL}
 };
