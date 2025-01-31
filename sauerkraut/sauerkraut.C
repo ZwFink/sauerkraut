@@ -1,6 +1,7 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 #include "sauerkraut_cpython_compat.h"
+#include "greenlet_compat.h"
 #include <stdbool.h>
 #include <vector>
 #include <memory>
@@ -226,6 +227,7 @@ PyFrameObject *push_frame_for_running(PyThreadState *tstate, _PyInterpreterFrame
     py_weakref<PyFrameObject> pyframe_object = to_push->frame_obj;
     if(stack_frame == NULL) {
         PySys_WriteStderr("<Sauerkraut>: Could not allocate memory for new frame\n");
+        PySys_WriteStderr("<Sauerkraut>: Tried to allocate frame of size %d\n", code->co_framesize);
         return NULL;
     }
 
@@ -234,7 +236,12 @@ PyFrameObject *push_frame_for_running(PyThreadState *tstate, _PyInterpreterFrame
     
     stack_frame->owner = to_push->owner;
     // needs to be the currently executing frame
-    stack_frame->previous = PyEval_GetFrame()->f_frame;
+    py_weakref<PyFrameObject> current_frame{(PyFrameObject*) PyEval_GetFrame()};
+    if(!current_frame) {
+        stack_frame->previous = NULL;
+    } else {
+    stack_frame->previous = current_frame->f_frame;
+    }
     stack_frame->f_funcobj = to_push->f_funcobj;
     stack_frame->f_executable.bits = to_push->f_executable.bits;
     stack_frame->f_globals = to_push->f_globals;
@@ -254,26 +261,23 @@ PyFrameObject *push_frame_for_running(PyThreadState *tstate, _PyInterpreterFrame
     return *pyframe_object;
 }
 
-static PyObject *_copy_frame(PyObject *self, PyObject *args) {
+static PyObject *_copy_frame_object(py_weakref<PyFrameObject> frame) {
     using namespace utils;
-    struct _frame *frame = (struct _frame*) PyEval_GetFrame();
     _PyInterpreterFrame *to_copy = frame->f_frame;
     // utils::py::print_stack_pointed_obj(to_copy);
     PyThreadState *tstate = PyThreadState_Get();
-    PyCodeObject *code = PyFrame_GetCode(frame);
+    PyCodeObject *code = PyFrame_GetCode(*frame);
     assert(code != NULL);
     PyCodeObject *copy_code_obj = (PyCodeObject *)deepcopy_object((PyObject*)code);
 
-    PyObject *FrameLocals = GetFrameLocalsFromFrame((PyObject*)frame);
-    // PyObject *LocalCopy = PyDict_Copy(FrameLocals);
+    PyObject *FrameLocals = GetFrameLocalsFromFrame((PyObject*)*frame);
 
     // We want to copy these here because we want to "freeze" the locals
     // at this point; with a shallow copy, changes to locals will propagate to
     // the copied frame between its copy and serialization.
     PyObject *LocalCopy = deepcopy_object(FrameLocals);
 
-
-    auto stack_state = utils::py::get_stack_state((PyObject*)frame);
+    auto stack_state = utils::py::get_stack_state((PyObject*)*frame);
     PyFrameObject *new_frame = create_copied_frame(tstate, to_copy, copy_code_obj, LocalCopy, 0, 1, 0, stack_state.size(), 1);
 
     PyObject *capsule = frame_copy_capsule_create(new_frame, stack_state);
@@ -284,11 +288,15 @@ static PyObject *_copy_frame(PyObject *self, PyObject *args) {
     return capsule;
 }
 
-static PyObject *_copy_serialize_frame(PyObject *self, PyObject *args) {
-    // here, we'll copy the frame "directly" into the serialized buffer
+static PyObject *_copy_frame(PyObject *self, PyObject *args) {
     using namespace utils;
-    struct _frame *frame = (struct _frame*) PyEval_GetFrame();
-    auto stack_state = utils::py::get_stack_state((PyObject*)frame);
+    PyFrameObject *frame = (PyFrameObject*) PyEval_GetFrame();
+    return _copy_frame_object(make_weakref(frame));
+}
+
+static PyObject *_copy_serialize_frame_object(py_weakref<PyFrameObject> frame) {
+    using namespace utils;
+    auto stack_state = utils::py::get_stack_state((PyObject*)*frame);
     py::skip_current_call_instruction(frame);
     std::unique_ptr<frame_copy_capsule> capsule(frame_copy_capsule_create_direct(frame, stack_state));
 
@@ -296,12 +304,19 @@ static PyObject *_copy_serialize_frame(PyObject *self, PyObject *args) {
     return ret;
 }
 
+static PyObject *_copy_serialize_frame(PyObject *self, PyObject *args) {
+    // here, we'll copy the frame "directly" into the serialized buffer
+    using namespace utils;
+    PyFrameObject *frame = (PyFrameObject*) PyEval_GetFrame();
+    return _copy_serialize_frame_object(make_weakref(frame));
+}
+
 static PyObject *copy_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyObject *capsule;
     int serialize = 0;  // Default to True
     
     static char *kwlist[] = {"serialize", NULL};
-    
+
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|p", kwlist, &serialize)) {
         return NULL;
     }
@@ -597,16 +612,10 @@ static PyObject *_deserialize_frame(PyObject *bytes, bool inplace=false) {
     return (PyObject*) frame;
 }
 
-
-// First allocates frame on the frame stack, then runs it
-static PyObject *run_frame(PyObject *self, PyObject *args) {
-    PyFrameObject *frame = NULL;
-    if (!PyArg_ParseTuple(args, "O", &frame)) {
-        return NULL;
-    }
-
+static PyObject *run_frame_direct(py_weakref<PyFrameObject> frame) {
     PyThreadState *tstate = PyThreadState_Get();
-    PyCodeObject *code = PyFrame_GetCode(frame);
+    // Isn't this a strongref?
+    PyCodeObject *code = PyFrame_GetCode(*frame);
     PyFrameObject *to_run = push_frame_for_running(tstate, frame->f_frame, code);
     if (to_run == NULL) {
         PySys_WriteStderr("<Sauerkraut>: failed to create frame on the framestack\n");
@@ -614,6 +623,17 @@ static PyObject *run_frame(PyObject *self, PyObject *args) {
     }
     PyObject *res = PyEval_EvalFrame(to_run);
     return res;
+
+}
+
+// First allocates frame on the frame stack, then runs it
+static PyObject *run_frame(PyObject *self, PyObject *args) {
+    PyFrameObject *frame = NULL;
+    if (!PyArg_ParseTuple(args, "O", &frame)) {
+        return NULL;
+    }
+    py_weakref<PyFrameObject> frame_ref = frame;
+    return run_frame_direct(frame_ref);
 }
 
 static PyObject *serialize_frame(PyObject *self, PyObject *args) {
@@ -646,12 +666,42 @@ static PyObject *deserialize_frame(PyObject *self, PyObject *args, PyObject *kwa
     return ret_obj;
 }
 
+static PyObject *copy_frame_from_greenlet(PyObject *self, PyObject *args, PyObject *kwargs) {
+    PyObject *greenlet;
+    int serialize = 0;
+    static char *kwlist[] = {"greenlet", "serialize", NULL};
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|p", kwlist, &greenlet, &serialize)) {
+        return NULL;
+    }
+    assert(greenlet::is_greenlet(greenlet));
+    auto frame = make_weakref(greenlet::getframe(greenlet));
+    if(serialize) {
+        return _copy_serialize_frame_object(frame);
+    }
+    return _copy_frame_object(frame);
+}
+
+static PyObject *_resume_greenlet(py_weakref<PyFrameObject> frame) {
+    return run_frame_direct(frame);
+}
+
+static PyObject *resume_greenlet(PyObject *self, PyObject *args) {
+    PyObject *frame;
+    if (!PyArg_ParseTuple(args, "O", &frame)) {
+        return NULL;
+    }
+    py_weakref<PyFrameObject> frame_ref = (PyFrameObject*)frame;
+    return _resume_greenlet(frame_ref);
+}
+
 static PyMethodDef MyMethods[] = {
     {"copy_and_run_frame", copy_and_run_frame, METH_VARARGS, "Copy the current frame and run it"},
     {"serialize_frame", serialize_frame, METH_VARARGS, "Serialize the frame"},
     {"copy_frame", (PyCFunction) copy_frame, METH_VARARGS | METH_KEYWORDS, "Copy the current frame"},
     {"deserialize_frame", (PyCFunction) deserialize_frame, METH_VARARGS | METH_KEYWORDS, "Deserialize the frame"},
     {"run_frame", run_frame, METH_VARARGS, "Run the frame"},
+    {"resume_greenlet", (PyCFunction) resume_greenlet, METH_VARARGS, "Resume the frame from a greenlet"},
+    {"copy_frame_from_greenlet", (PyCFunction) copy_frame_from_greenlet, METH_VARARGS | METH_KEYWORDS, "Copy the frame from a greenlet"},
     {NULL, NULL, 0, NULL}
 };
 
@@ -673,6 +723,7 @@ static struct PyModuleDef sauerkraut_mod = {
 
 PyMODINIT_FUNC PyInit_sauerkraut(void) {
     sauerkraut_state = new sauerkraut_modulestate();
+    greenlet::init_greenlet();
     return PyModule_Create(&sauerkraut_mod);
 }
 

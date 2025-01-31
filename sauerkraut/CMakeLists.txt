@@ -19,18 +19,37 @@ target_include_directories(sauerkraut PUBLIC
     ${FLATBUFFER_GENERATED_HEADERS}
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
+
 add_subdirectory(buffer)
 add_subdirectory(serdes)
+add_subdirectory(greenlet_compat)
+add_dependencies(sauerkraut generate_flatbuffers serdes greenlet_compat)
 
-add_dependencies(sauerkraut generate_flatbuffers serdes)
+# Set the exact path to the greenlet library
+set(GREENLET_LIBRARY "/cpython-install/lib/python3.13/site-packages/greenlet/_greenlet.cpython-313d-x86_64-linux-gnu.so")
+
+if(NOT EXISTS ${GREENLET_LIBRARY})
+    message(FATAL_ERROR "Greenlet library not found at ${GREENLET_LIBRARY}")
+endif()
+
 # Link necessary libraries
 target_link_libraries(sauerkraut
+    PRIVATE
     Python::Python
     pthread
     m
     util
     dl
     serdes
+    greenlet_compat
+    "-Wl,--no-as-needed,${GREENLET_LIBRARY}"  # Force linking with the full path
+)
+
+# Set RPATH to include the directory containing greenlet
+set_target_properties(sauerkraut PROPERTIES
+    INSTALL_RPATH "/cpython-install/lib/python3.13/site-packages/greenlet"
+    BUILD_RPATH "/cpython-install/lib/python3.13/site-packages/greenlet"
+    SKIP_BUILD_RPATH FALSE
 )
 
 # shared library shoudl go to the build directory

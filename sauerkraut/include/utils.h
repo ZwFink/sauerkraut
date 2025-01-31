@@ -1,12 +1,54 @@
 #ifndef UTILS_HH_INCLUDED
 #define UTILS_HH_INCLUDED
-#define PY_SSIZE_T_CLEAN
-#include <Python.h>
+#include "sauerkraut_cpython_compat.h"
 #include <opcode_ids.h>
 #include "py_structs.h"
 #include "pyref.h"
 #include <opcode_ids.h>
 #include <map>
+
+namespace {
+
+static _PyStackChunk*
+allocate_chunk(int size_in_bytes, _PyStackChunk* previous)
+{
+    assert(size_in_bytes % sizeof(PyObject **) == 0);
+    _PyStackChunk *res = (_PyStackChunk*) PyObject_Malloc(size_in_bytes);
+    if (res == NULL) {
+        return NULL;
+    }
+    res->previous = previous;
+    res->size = size_in_bytes;
+    res->top = 0;
+    return res;
+}
+
+static PyObject **
+    push_chunk(PyThreadState *tstate, int size)
+    {
+        int allocate_size = pycompat::DATA_STACK_CHUNK_SIZE;
+        while (allocate_size < (int)sizeof(PyObject*)*(size + pycompat::CHUNK_ALLOC_MINIMUM_OVERHEAD)) {
+            allocate_size *= 2;
+        }
+        _PyStackChunk *new_chunk = allocate_chunk(allocate_size, tstate->datastack_chunk);
+        if (new_chunk == NULL) {
+            return NULL;
+        }
+        if (tstate->datastack_chunk) {
+            tstate->datastack_chunk->top = tstate->datastack_top -
+                                           &tstate->datastack_chunk->data[0];
+        }
+        tstate->datastack_chunk = new_chunk;
+        tstate->datastack_limit = (PyObject **)(((char *)new_chunk) + allocate_size);
+        // When new is the "root" chunk (i.e. new->previous == NULL), we can keep
+        // _PyThreadState_PopFrame from freeing it later by "skipping" over the
+        // first element:
+        PyObject **res = &new_chunk->data[new_chunk->previous == NULL];
+        tstate->datastack_top = res + size;
+        return res;
+    }
+
+}
 
 namespace utils {
     namespace py {
@@ -74,12 +116,12 @@ namespace utils {
         }
 
         _PyInterpreterFrame *ThreadState_PushFrame(py_weakref<PyThreadState> tstate, size_t size) {
-            if(!ThreadState_HasStackSpace(tstate, size)) {
-                return NULL;
+            if(ThreadState_HasStackSpace(tstate, size)) {
+                _PyInterpreterFrame *top = (_PyInterpreterFrame *)tstate->datastack_top;
+                tstate->datastack_top += size;
+                return top;
             }
-            _PyInterpreterFrame *top = (_PyInterpreterFrame*) tstate->datastack_top;
-            tstate->datastack_top += size;
-            return top;
+            return (_PyInterpreterFrame*) push_chunk(*tstate, size);
         }
 
         _PyInterpreterFrame *AllocateFrame(size_t size) {

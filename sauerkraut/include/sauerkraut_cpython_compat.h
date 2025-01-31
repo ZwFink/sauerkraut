@@ -20,4 +20,9 @@
 #if !SAUERKRAUT_PY313 && !SAUERKRAUT_PY314
 #    error "Unsupported Python version"
 #endif
+
+namespace pycompat {
+    constexpr size_t  CHUNK_ALLOC_MINIMUM_OVERHEAD = 1000;
+    constexpr size_t DATA_STACK_CHUNK_SIZE = 16 * 1024;
+}
 #endif 

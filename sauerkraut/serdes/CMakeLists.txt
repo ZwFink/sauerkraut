@@ -14,7 +14,5 @@ set_target_properties(serdes PROPERTIES
 
 add_dependencies(serdes generate_flatbuffers)
 target_include_directories(serdes PUBLIC
-    ${FlatBuffersIncludePath}
-    ${FLATBUFFER_GENERATED_HEADERS}
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
