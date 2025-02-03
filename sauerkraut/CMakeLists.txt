@@ -25,8 +25,19 @@ add_subdirectory(serdes)
 add_subdirectory(greenlet_compat)
 add_dependencies(sauerkraut generate_flatbuffers serdes greenlet_compat)
 
-# Set the exact path to the greenlet library
-set(GREENLET_LIBRARY "/cpython-install/lib/python3.13/site-packages/greenlet/_greenlet.cpython-313d-x86_64-linux-gnu.so")
+# Find greenlet library path automatically
+execute_process(
+    COMMAND ${Python_EXECUTABLE} -c "import greenlet, os; base_dir = os.path.dirname(greenlet.__file__); print(base_dir); print([f for f in os.listdir(base_dir) if f.startswith('_greenlet.cpython-')][0])"
+    OUTPUT_VARIABLE PYTHON_INFO
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+
+# Split the output into lines
+string(REPLACE "\n" ";" PYTHON_INFO_LIST "${PYTHON_INFO}")
+list(GET PYTHON_INFO_LIST 0 GREENLET_DIR)
+list(GET PYTHON_INFO_LIST 1 GREENLET_FILENAME)
+
+set(GREENLET_LIBRARY "${GREENLET_DIR}/${GREENLET_FILENAME}")
 
 if(NOT EXISTS ${GREENLET_LIBRARY})
     message(FATAL_ERROR "Greenlet library not found at ${GREENLET_LIBRARY}")
@@ -42,15 +53,9 @@ target_link_libraries(sauerkraut
     dl
     serdes
     greenlet_compat
-    "-Wl,--no-as-needed,${GREENLET_LIBRARY}"  # Force linking with the full path
+    "-Wl,--no-as-needed,${GREENLET_LIBRARY}"
 )
 
-# Set RPATH to include the directory containing greenlet
-set_target_properties(sauerkraut PROPERTIES
-    INSTALL_RPATH "/cpython-install/lib/python3.13/site-packages/greenlet"
-    BUILD_RPATH "/cpython-install/lib/python3.13/site-packages/greenlet"
-    SKIP_BUILD_RPATH FALSE
-)
 
 # shared library shoudl go to the build directory
 set_target_properties(sauerkraut PROPERTIES
