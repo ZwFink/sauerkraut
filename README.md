@@ -6,8 +6,48 @@ Sauerkraut is designed to be lightning fast for latency-sensitive HPC applicatio
 
 This library is still experimental, and subject to change.
 
-## Example
-The following example 
+## Examples
+
+### Using Greenlets (Recommended)
+The following example shows how to serialize a function's state using greenlets, which provides a cleaner interface:
+```python
+import sauerkraut
+import greenlet
+import numpy as np
+
+def fun1(c):
+    g = 4
+    a = np.array([1, 2, 3])
+    # Switch back to parent, preserving our state
+    greenlet.getcurrent().parent.switch()
+    
+    # When we resume, continue here
+    a += 1
+    print(f'c={c}, g={g}, a={a}')
+    return 3
+
+# Create and start the greenlet
+f1_gr = greenlet.greenlet(fun1)
+f1_gr.switch(13)
+
+# Serialize the greenlet's state
+serframe = sauerkraut.copy_frame_from_greenlet(f1_gr, serialize=True)
+
+# Save to disk
+with open('serialized_frame.bin', 'wb') as f:
+    f.write(serframe)
+
+# Read from disk and resume execution
+with open('serialized_frame.bin', 'rb') as f:
+    read_frame = f.read()
+code = sauerkraut.deserialize_frame(read_frame)
+gr = greenlet.greenlet(sauerkraut.run_frame)
+retval = gr.switch(code)
+print(f"Done on the parent, child returned {retval}")
+```
+
+### Low-level API
+This example demonstrates the lower-level frame copying and serialization API:
 ```python
 import sauerkraut as skt
 calls = 0
@@ -22,7 +62,7 @@ def fun1(c):
           # copy_frame makes a copy of the current control + data states.
           # When we later run the frame (run_frame), execution will continue
           # directly after the call.
-          # Therefore,  line will return twice:
+          # Therefore, this line will return twice:
           # The first time when the frame is copied,
           # the second time when the frame is resumed.
           frm_copy = skt.copy_frame()
@@ -44,26 +84,49 @@ def fun1(c):
     calls = 0
     return 3
 
+# Create and serialize a frame
 frm = fun1(13)
 serframe = skt.serialize_frame(frm)
+
+# Save to disk
 with open('serialized_frame.bin', 'wb') as f:
     f.write(serframe)
+
+# Read from disk and resume execution
 with open('serialized_frame.bin', 'rb') as f:
     read_frame = f.read()
 code = skt.deserialize_frame(read_frame)
 skt.run_frame(code)
 ```
 
-## Building
-Sauerkraut leverages intimate knowledge of CPython internals, and as such is vulnerable to changes in the CPython API and VM.
-Currently, Sauerkraut supports Python 3.13 and the development version of Python 3.14
-We recommend to use the Docker container, which can be built or used with:
+## Installation
+
+Sauerkraut can be installed in two ways:
+
+### 1. Direct Installation
+First, install the required fork of greenlet:
 ```bash
-# This should take 5-10 minutes
+python3 -m pip install git+https://github.com/ZwFink/greenlet.git
+```
+
+Then install sauerkraut:
+```bash
+python3 -m pip install .
+```
+
+### 2. Using Docker
+```bash
+# Build the Docker image (takes 5-10 minutes)
 docker build -t sauerkraut -f Dockerfile .
+
+# Run the container
 docker run --name="sauerkraut_img" -it library/sauerkraut
-# Now we are in the container
+
+# Inside the container, you can run examples:
 cd /sauerkraut/examples
 python3 copy_then_serialize.py
 ```
-The Docker container builds Sauerkraut with Python 3.13.
+
+## Compatibility
+Sauerkraut leverages intimate knowledge of CPython internals, and as such is vulnerable to changes in the CPython API and VM.
+Currently, Sauerkraut supports Python 3.13 and the development version of Python 3.14.
