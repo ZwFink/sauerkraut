@@ -1,8 +1,22 @@
 # Find Flatbuffers package
-find_package(Flatbuffers REQUIRED)
+find_package(flatbuffers REQUIRED)
 
 # Get all .fbs files
 file(GLOB FlatbufFiles "${CMAKE_CURRENT_SOURCE_DIR}/*.fbs")
+
+# Find flatc executable
+if(DEFINED FLATC_EXECUTABLE)
+    set(FLATC ${FLATC_EXECUTABLE})
+else()
+    find_program(FLATC flatc PATHS ${CMAKE_BINARY_DIR}/flatbuffers-install/bin NO_DEFAULT_PATH)
+    if(NOT FLATC)
+        find_program(FLATC flatc)
+    endif()
+endif()
+
+if(NOT FLATC)
+    message(FATAL_ERROR "flatc compiler not found")
+endif()
 
 # Create a custom command to generate C++ headers from Flatbuffer schemas
 set(FLATBUFFER_GENERATED_HEADERS "")
@@ -11,7 +25,7 @@ foreach(FlatbufFile ${FlatbufFiles})
     set(GENERATED_HEADER "${CMAKE_CURRENT_BINARY_DIR}/${BASENAME}_generated.h")
     add_custom_command(
         OUTPUT ${GENERATED_HEADER}
-        COMMAND flatc
+        COMMAND ${FLATC}
         ARGS --cpp -o "${CMAKE_CURRENT_BINARY_DIR}" ${FlatbufFile}
         DEPENDS ${FlatbufFile}
         COMMENT "Generating C++ header for ${BASENAME}"

@@ -7,18 +7,25 @@ set(SOURCES
 add_library(sauerkraut SHARED ${SOURCES})
 # Set the output properties to match Python module naming conventions
 set_target_properties(sauerkraut PROPERTIES
-    OUTPUT_NAME "sauerkraut"
+    OUTPUT_NAME "_sauerkraut"
     PREFIX ""
     CXX_VISIBILITY_PRESET default
     VISIBILITY_INLINES_HIDDEN OFF
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}"
 )
-set(FlatBuffersIncludePath ${FLATBUFFER_INCLUDE_DIRS})
+
+# Set CMAKE_PREFIX_PATH to include Flatbuffers install directory
+list(APPEND CMAKE_PREFIX_PATH "${CMAKE_BINARY_DIR}/flatbuffers-install")
+
+message(STATUS "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}")
+message(STATUS "Flatbuffers include directory: ${FLATBUFFERS_INCLUDE_DIR}")
+message(STATUS "Flatbuffers include path: ${FlatBuffersIncludePath}")
 # Include directories for the target
 target_include_directories(sauerkraut PUBLIC
-    ${FlatBuffersIncludePath}
-    ${FLATBUFFER_GENERATED_HEADERS}
+    ${FLATBUFFERS_INCLUDE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    )
+    ${CMAKE_CURRENT_BINARY_DIR}  # For generated headers
+)
 
 add_subdirectory(buffer)
 add_subdirectory(serdes)
@@ -55,7 +62,6 @@ target_link_libraries(sauerkraut
     greenlet_compat
     "-Wl,--no-as-needed,${GREENLET_LIBRARY}"
 )
-
 
 # shared library shoudl go to the build directory
 set_target_properties(sauerkraut PROPERTIES
