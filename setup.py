@@ -36,9 +36,8 @@ class CMakeExtension(Extension):
 class CMakeBuild(build_ext):
     def build_flatbuffers(self):
         try:
-            # First try to use system flatc
             subprocess.check_output(['flatc', '--version'])
-            return None  # Use system flatc
+            return None  
         except OSError:
             print("Building Flatbuffers from source...")
             code_url = 'https://github.com/google/flatbuffers/archive/refs/tags/v24.3.25.zip'
@@ -106,7 +105,6 @@ class CMakeBuild(build_ext):
     def build_extension(self, ext):
         extdir = os.path.abspath(os.path.dirname(self.get_ext_fullpath(ext.name)))
         
-        # Only build Flatbuffers once
         if not hasattr(self, '_flatbuffers_dir'):
             self._flatbuffers_dir = self.build_flatbuffers()
         
@@ -146,7 +144,6 @@ class CMakeBuild(build_ext):
             f'python{sys.version_info.major}.{sys.version_info.minor}.dll',  # Windows
         ]
         
-        # Common library directories
         lib_dirs = [
             os.path.join(sys.prefix, 'lib'),
             os.path.join(sys.prefix, 'libs'),
