@@ -721,7 +721,7 @@ static struct PyModuleDef sauerkraut_mod = {
     sauerkraut_free // free function for GC
 };
 
-PyMODINIT_FUNC PyInit_sauerkraut(void) {
+PyMODINIT_FUNC PyInit__sauerkraut(void) {
     sauerkraut_state = new sauerkraut_modulestate();
     greenlet::init_greenlet();
     return PyModule_Create(&sauerkraut_mod);
