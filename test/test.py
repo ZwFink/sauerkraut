@@ -32,6 +32,7 @@ def test_copy_then_serialize():
     code = skt.deserialize_frame(read_frame)
     retval = skt.run_frame(code)
     assert retval == 3
+    print("Test 'copy_then_serialize' passed")
 
 
 def test2_fn(c):
@@ -63,7 +64,7 @@ def test_combined_copy_serialize():
 
     print('Function returned with:', retval)
     assert retval == 19
-
+    print("Test combined_copy_serialize passed")
 
 def for_loop_fn(c):
     global calls
@@ -104,7 +105,7 @@ def test_for_loop():
     iters_run = skt.run_frame(code)
 
     assert iters_run == 18
-
+    print("Test 'for_loop' passed")
 def greenlet_fn(c):
     a = np.array([1, 2, 3])
     greenlet.getcurrent().parent.switch()
@@ -124,7 +125,7 @@ def test_greenlet():
     code = skt.deserialize_frame(read_frame)
     gr = greenlet.greenlet(skt.run_frame)
     gr.switch(code)
-
+    print("Test 'greenlet' passed")
 
 test_copy_then_serialize()
 test_combined_copy_serialize()

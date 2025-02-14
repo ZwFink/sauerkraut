@@ -140,6 +140,9 @@ namespace utils {
             return 5 * sizeof(_CodeUnit);
             } else if(opcode == CALL_KW) {
             return 2 * sizeof(_CodeUnit);
+            } else {
+                PySys_WriteStderr("(get_offset_for_skipping_call) Unknown opcode: %d\n", opcode);
+                return 0;
             }
             #endif
         }
