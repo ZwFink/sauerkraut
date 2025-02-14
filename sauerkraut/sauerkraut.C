@@ -170,6 +170,11 @@ void copy_stack(py_weakref<sauerkraut::PyInterpreterFrame> to_copy,
     }
 }
 
+static py_weakref<PyFrameObject> finalize_frame_creation(py_weakref<PyFrameObject> frame) {
+    utils::py::skip_current_call_instruction(frame);
+    return frame;
+}
+
 PyFrameObject *create_copied_frame(py_weakref<PyThreadState> tstate, 
                                  py_weakref<sauerkraut::PyInterpreterFrame> to_copy, 
                                  py_weakref<PyCodeObject> code_obj, 
@@ -217,7 +222,7 @@ PyFrameObject *create_copied_frame(py_weakref<PyThreadState> tstate,
     copy_localsplus(to_copy, new_frame_ref, nlocals, deepcopy_localsplus);
     copy_stack(to_copy, new_frame_ref, stack_size, 1);
 
-    return new_frame;
+    return *finalize_frame_creation(new_frame);
 }
 
 PyFrameObject *push_frame_for_running(PyThreadState *tstate, _PyInterpreterFrame *to_push, PyCodeObject *code) {
@@ -258,7 +263,7 @@ PyFrameObject *push_frame_for_running(PyThreadState *tstate, _PyInterpreterFrame
     #endif
 
     pyframe_object->f_frame = stack_frame;
-    return *pyframe_object;
+    return *finalize_frame_creation(pyframe_object);
 }
 
 static PyObject *_copy_frame_object(py_weakref<PyFrameObject> frame) {
@@ -297,7 +302,6 @@ static PyObject *_copy_frame(PyObject *self, PyObject *args) {
 static PyObject *_copy_serialize_frame_object(py_weakref<PyFrameObject> frame) {
     using namespace utils;
     auto stack_state = utils::py::get_stack_state((PyObject*)*frame);
-    py::skip_current_call_instruction(frame);
     std::unique_ptr<frame_copy_capsule> capsule(frame_copy_capsule_create_direct(frame, stack_state));
 
     PyObject *ret = _serialize_frame_direct_from_capsule(capsule.get());
@@ -570,6 +574,7 @@ static void init_pyinterpreterframe(sauerkraut::PyInterpreterFrame *interp_frame
     interp_frame->owner = frame_obj.owner;
     interp_frame->frame_obj = (PyFrameObject*) Py_NewRef(frame.borrow());
     frame->f_frame = interp_frame;
+    finalize_frame_creation(frame);
 }
 
 static sauerkraut::PyInterpreterFrame *create_pyinterpreterframe_object(serdes::DeserializedPyInterpreterFrame& frame_obj, 
