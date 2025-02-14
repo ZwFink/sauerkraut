@@ -170,7 +170,7 @@ void copy_stack(py_weakref<sauerkraut::PyInterpreterFrame> to_copy,
     }
 }
 
-static py_weakref<PyFrameObject> finalize_frame_creation(py_weakref<PyFrameObject> frame) {
+static py_weakref<PyFrameObject> prepare_frame_for_execution(py_weakref<PyFrameObject> frame) {
     utils::py::skip_current_call_instruction(frame);
     return frame;
 }
@@ -217,12 +217,15 @@ PyFrameObject *create_copied_frame(py_weakref<PyThreadState> tstate,
     #endif
     auto offset = utils::py::get_instr_offset<utils::py::Units::Bytes>(to_copy);
     new_frame->f_frame->instr_ptr = (_CodeUnit*) (code_obj->co_code_adaptive + offset);
-    utils::py::skip_current_call_instruction(new_frame);
 
     copy_localsplus(to_copy, new_frame_ref, nlocals, deepcopy_localsplus);
     copy_stack(to_copy, new_frame_ref, stack_size, 1);
 
-    return *finalize_frame_creation(new_frame);
+    if(push_frame) {
+        return *prepare_frame_for_execution(new_frame);
+    } else {
+        return new_frame;
+    }
 }
 
 PyFrameObject *push_frame_for_running(PyThreadState *tstate, _PyInterpreterFrame *to_push, PyCodeObject *code) {
@@ -263,7 +266,7 @@ PyFrameObject *push_frame_for_running(PyThreadState *tstate, _PyInterpreterFrame
     #endif
 
     pyframe_object->f_frame = stack_frame;
-    return *finalize_frame_creation(pyframe_object);
+    return *prepare_frame_for_execution(pyframe_object);
 }
 
 static PyObject *_copy_frame_object(py_weakref<PyFrameObject> frame) {
@@ -293,7 +296,7 @@ static PyObject *_copy_frame_object(py_weakref<PyFrameObject> frame) {
     return capsule;
 }
 
-static PyObject *_copy_frame(PyObject *self, PyObject *args) {
+static PyObject *_copy_current_frame(PyObject *self, PyObject *args) {
     using namespace utils;
     PyFrameObject *frame = (PyFrameObject*) PyEval_GetFrame();
     return _copy_frame_object(make_weakref(frame));
@@ -308,15 +311,14 @@ static PyObject *_copy_serialize_frame_object(py_weakref<PyFrameObject> frame) {
     return ret;
 }
 
-static PyObject *_copy_serialize_frame(PyObject *self, PyObject *args) {
+static PyObject *_copy_serialize_current_frame(PyObject *self, PyObject *args) {
     // here, we'll copy the frame "directly" into the serialized buffer
     using namespace utils;
     PyFrameObject *frame = (PyFrameObject*) PyEval_GetFrame();
     return _copy_serialize_frame_object(make_weakref(frame));
 }
 
-static PyObject *copy_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
-    PyObject *capsule;
+static PyObject *copy_current_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
     int serialize = 0;  // Default to True
     
     static char *kwlist[] = {"serialize", NULL};
@@ -326,9 +328,30 @@ static PyObject *copy_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
     }
 
     if(serialize) {
-        return _copy_serialize_frame(self, args);
+        return _copy_serialize_current_frame(self, args);
     } else {
-        return _copy_frame(self, args);
+        return _copy_current_frame(self, args);
+    }
+
+    return Py_None;
+}
+
+static PyObject *copy_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
+    PyObject *frame;
+    int serialize = 0;  // Default to True
+    
+    static char *kwlist[] = {"frame", "serialize", NULL};
+    
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|p", kwlist, &frame, &serialize)) {
+        return NULL;
+    }
+    // py_weakref<PyFrameObject> frame_ref{(PyFrameObject*)frame};
+    py_weakref<PyFrameObject> frame_ref{PyFrame_GetBack((PyFrameObject*)frame)};
+
+    if(serialize) {
+        return _copy_serialize_frame_object(frame_ref);
+    } else {
+        return _copy_frame_object(frame_ref);
     }
 
     return Py_None;
@@ -535,7 +558,6 @@ static void init_pyinterpreterframe(sauerkraut::PyInterpreterFrame *interp_frame
         interp_frame->f_globals = Py_NewRef(frame_obj.f_globals.borrow());
     } else {
         interp_frame->f_globals = PyEval_GetFrameGlobals();
-
     }
     if(NULL != *frame_obj.f_builtins) {
         interp_frame->f_builtins = Py_NewRef(frame_obj.f_builtins.borrow());
@@ -574,7 +596,6 @@ static void init_pyinterpreterframe(sauerkraut::PyInterpreterFrame *interp_frame
     interp_frame->owner = frame_obj.owner;
     interp_frame->frame_obj = (PyFrameObject*) Py_NewRef(frame.borrow());
     frame->f_frame = interp_frame;
-    finalize_frame_creation(frame);
 }
 
 static sauerkraut::PyInterpreterFrame *create_pyinterpreterframe_object(serdes::DeserializedPyInterpreterFrame& frame_obj, 
@@ -589,6 +610,10 @@ static sauerkraut::PyInterpreterFrame *create_pyinterpreterframe_object(serdes::
         interp_frame = utils::py::AllocateFrame(code->co_framesize);
     }
     init_pyinterpreterframe(interp_frame, frame_obj, frame, code);
+
+    if(inplace) {
+        prepare_frame_for_execution(frame);
+    }
     return interp_frame;
 }
 
@@ -702,7 +727,8 @@ static PyObject *resume_greenlet(PyObject *self, PyObject *args) {
 static PyMethodDef MyMethods[] = {
     {"copy_and_run_frame", copy_and_run_frame, METH_VARARGS, "Copy the current frame and run it"},
     {"serialize_frame", serialize_frame, METH_VARARGS, "Serialize the frame"},
-    {"copy_frame", (PyCFunction) copy_frame, METH_VARARGS | METH_KEYWORDS, "Copy the current frame"},
+    {"copy_frame", (PyCFunction) copy_frame, METH_VARARGS | METH_KEYWORDS, "Copy a given frame"},
+    {"copy_current_frame", (PyCFunction) copy_current_frame, METH_VARARGS | METH_KEYWORDS, "Copy the current frame"},
     {"deserialize_frame", (PyCFunction) deserialize_frame, METH_VARARGS | METH_KEYWORDS, "Deserialize the frame"},
     {"run_frame", run_frame, METH_VARARGS, "Run the frame"},
     {"resume_greenlet", (PyCFunction) resume_greenlet, METH_VARARGS, "Resume the frame from a greenlet"},

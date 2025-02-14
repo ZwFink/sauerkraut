@@ -15,7 +15,7 @@ def fun1(c):
         for j in range(6):
             if i == 0 and j == 0:
                 print("Copying frame")
-                frm_copy = sauerkraut.copy_frame()
+                frm_copy = sauerkraut.copy_current_frame()
                 # 
             if calls == 1:
                 g = 5

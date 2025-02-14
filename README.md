@@ -65,8 +65,8 @@ def fun1(c):
           # Therefore, this line will return twice:
           # The first time when the frame is copied,
           # the second time when the frame is resumed.
-          frm_copy = skt.copy_frame()
-      # Because copy_frame will return twice, we need to differentiate
+          frm_copy = skt.copy_current_frame()
+      # Because copy_current_frame will return twice, we need to differentiate
       # between the different returns to avoid getting stuck in a loop!
       if calls == 1:
           # The copied frame does not see this write to g

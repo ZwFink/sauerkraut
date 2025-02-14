@@ -7,7 +7,7 @@ def fun1(c):
     global calls
     calls += 1
     g = 4
-    frm_copy = sauerkraut.copy_frame()
+    frm_copy = sauerkraut.copy_current_frame()
     if calls == 1:
         g = 5
         calls += 1
