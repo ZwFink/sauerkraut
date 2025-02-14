@@ -350,9 +350,7 @@ namespace serdes {
         offsets::PyInterpreterFrameOffset serialize(Builder &builder, sauerkraut::PyInterpreterFrame &obj, int stack_depth) {
             auto f_executable_ser = code_serializer.serialize(builder, (PyCodeObject*)obj.f_executable.bits);
             auto f_func_obj_ser = po_serializer.serialize(builder, obj.f_funcobj);
-            // for now, we can't do this because of the modules
-            // auto f_globals_ser = po_serializer.serialize(builder, obj.f_globals);
-            // auto f_builtins_ser = po_serializer.serialize(builder, obj.f_builtins);
+            auto f_globals_ser = po_serializer.serialize(builder, obj.f_globals);
 
             auto f_locals_ser = (NULL != obj.f_locals) ? 
                 std::optional{po_serializer.serialize(builder, obj.f_locals)} : std::nullopt;
@@ -362,6 +360,7 @@ namespace serdes {
 
             pyframe_buffer::PyInterpreterFrameBuilder frame_builder(builder);
             frame_builder.add_f_executable(f_executable_ser);
+            frame_builder.add_f_globals(f_globals_ser);
             if(f_locals_ser) {
                 frame_builder.add_f_locals(f_locals_ser.value());
             }
