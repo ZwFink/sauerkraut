@@ -5,7 +5,8 @@ from _sauerkraut import (
     deserialize_frame,
     run_frame,
     resume_greenlet,
-    copy_frame_from_greenlet
+    copy_frame_from_greenlet,
+    copy_current_frame
 )
 
 __all__ = [
@@ -15,5 +16,6 @@ __all__ = [
     'deserialize_frame',
     'run_frame',
     'resume_greenlet',
-    'copy_frame_from_greenlet'
+    'copy_frame_from_greenlet',
+    'copy_current_frame'
 ]

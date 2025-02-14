@@ -20,7 +20,7 @@ def fun1(c):
     global calls
     calls += 1
     g = 4
-    frame_bytes = sauerkraut.copy_frame(serialize=True)
+    frame_bytes = sauerkraut.copy_current_frame(serialize=True)
     if calls == 1:
         g = 5
         calls += 1

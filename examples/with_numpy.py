@@ -9,7 +9,7 @@ def fun1(c):
     g = 4
     local_array = np.zeros((5, 5))
     local_array += 1
-    frame_bytes = sauerkraut.copy_frame(serialize=True)
+    frame_bytes = sauerkraut.copy_current_frame(serialize=True)
     if calls == 1:
         g = 5
         local_array += 1

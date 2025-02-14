@@ -133,6 +133,7 @@ namespace utils {
 
         // TODO: This should use units
         Py_ssize_t get_offset_for_skipping_call(char opcode) {
+            // return 2 * sizeof(_CodeUnit);
             #if SAUERKRAUT_PY314
             return 5 * sizeof(_CodeUnit);
             #elif SAUERKRAUT_PY313
@@ -248,7 +249,7 @@ namespace utils {
             PyCodeObject *code = (PyCodeObject*) PyFrame_GetCode((PyFrameObject*)py_frame); //iframe->f_executable.bits;
 
             // divide by 2 to convert from bytes to instructions
-            Py_ssize_t offset = get_instr_offset<Units::Instructions>(py_frame);
+            Py_ssize_t offset = get_instr_offset<Units::Instructions>(py_frame->f_frame);
             PyObject *code_bytes = PyCode_GetCode(code);
             char *bitcode = PyBytes_AsString(code_bytes);
             sauerkraut::PyBitcodeInstruction *first_instr = (sauerkraut::PyBitcodeInstruction*) bitcode;

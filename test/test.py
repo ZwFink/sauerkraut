@@ -7,7 +7,7 @@ def test1_fn(c):
     global calls
     calls += 1
     g = 4
-    frm_copy = skt.copy_frame()
+    frm_copy = skt.copy_current_frame()
     if calls == 1:
         g = 5
         calls += 1
@@ -39,7 +39,7 @@ def test2_fn(c):
     global calls
     calls += 1
     g = 4
-    frame_bytes = skt.copy_frame(serialize=True)
+    frame_bytes = skt.copy_current_frame(serialize=True)
     if calls == 1:
         g = 5
         calls += 1
@@ -78,7 +78,7 @@ def for_loop_fn(c):
             sum += 1
             if i == 0 and j == 0:
                 print("Copying frame")
-                frm_copy = skt.copy_frame(serialize=True)
+                frm_copy = skt.copy_current_frame(serialize=True)
                 # 
             if calls == 1:
                 g = 5

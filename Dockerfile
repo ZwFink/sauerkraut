@@ -24,9 +24,7 @@ env PATH=/cpython-install/bin:$PATH
 
 RUN \
 	git clone https://github.com/ZwFink/greenlet.git /greenlet &&\
-	cd /greenlet && python3 -m pip install .
-
-RUN \
+	cd /greenlet && python3 -m pip install . && \
 	git clone https://github.com/ZwFink/sauerkraut.git /sauerkraut &&\
 	python3 -m pip install numpy && \
 	cd /sauerkraut && python3 -m pip install .
