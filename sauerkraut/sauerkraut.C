@@ -23,7 +23,7 @@ class sauerkraut_modulestate {
         sauerkraut_modulestate() {
             deepcopy_module = PyImport_ImportModule("copy");
             deepcopy = PyObject_GetAttrString(*deepcopy_module, "deepcopy");
-            pickle_module = PyImport_ImportModule("pickle");
+            pickle_module = PyImport_ImportModule("dill");
             pickle_dumps = PyObject_GetAttrString(*pickle_module, "dumps");
             pickle_loads = PyObject_GetAttrString(*pickle_module, "loads");
         }

@@ -11,23 +11,6 @@ class FlatbuffersExtension(Extension):
         Extension.__init__(self, name, sources=[])
         self.sourcedir = os.path.abspath(sourcedir)
 
-class FlatbuffersBuild(build_ext):
-    def run(self):
-        try:
-            subprocess.check_output(['flatc', '--version'])
-        except OSError:
-            code_url = 'https://github.com/google/flatbuffers/archive/refs/tags/v24.3.25.zip'
-            code_dir = os.path.join(self.build_temp, 'flatbuffers')
-            os.makedirs(code_dir, exist_ok=True)
-            subprocess.check_call(['curl', '-L', code_url, '-o', os.path.join(code_dir, 'flatbuffers.zip')])
-            subprocess.check_call(['unzip', '-q', os.path.join(code_dir, 'flatbuffers.zip'), '-d', code_dir])
-            subprocess.check_call(['cmake', code_dir, '-G', 'Unix Makefiles', '-DCMAKE_BUILD_TYPE=Release'])
-            subprocess.check_call(['cmake', '--build', '.'])
-
-        for ext in self.extensions:
-            self.build_extension(ext)
-
-
 class CMakeExtension(Extension):
     def __init__(self, name, sourcedir=''):
         Extension.__init__(self, name, sources=[])
@@ -35,15 +18,16 @@ class CMakeExtension(Extension):
 
 class CMakeBuild(build_ext):
     def build_flatbuffers(self):
+
+        install_dir = os.path.abspath(os.path.join(self.build_temp, 'flatbuffers-install'))
         try:
-            subprocess.check_output(['flatc', '--version'])
+            subprocess.check_output([os.path.join(install_dir, 'bin', 'flatc'), '--version'])
             return None  
         except OSError:
             print("Building Flatbuffers from source...")
             code_url = 'https://github.com/google/flatbuffers/archive/refs/tags/v24.3.25.zip'
             code_dir = os.path.abspath(os.path.join(self.build_temp, 'flatbuffers-source'))
             build_dir = os.path.abspath(os.path.join(self.build_temp, 'flatbuffers-build'))
-            install_dir = os.path.abspath(os.path.join(self.build_temp, 'flatbuffers-install'))
             
             # Clean any previous failed builds
             if os.path.exists(code_dir):
@@ -124,6 +108,8 @@ class CMakeBuild(build_ext):
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
         
+        cmake_cmd = ['cmake', ext.sourcedir] + cmake_args
+        print(cmake_cmd, flush=True, file=sys.stderr)
         subprocess.check_call(['cmake', ext.sourcedir] + cmake_args, cwd=self.build_temp)
         subprocess.check_call(['cmake', '--build', '.'] + build_args, cwd=self.build_temp)
         
