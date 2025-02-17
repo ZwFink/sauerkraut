@@ -495,6 +495,13 @@ static void init_code(PyCodeObject *obj, serdes::DeserializedCodeObject &code) {
     obj->_co_monitoring = NULL;
     obj->_co_firsttraceable = 0;
     obj->co_extra = NULL;
+
+    // optimization: cache the co_code_adaptive, which is a result
+    // of PyCode_GetCode, and requires de-optimizing the code.
+    // Here, we will pre-cache, without requiring another de-optimization.
+    obj->_co_cached = PyMem_New(_PyCoCached, 1);
+    std::memset(obj->_co_cached, 0, sizeof(_PyCoCached));
+    obj->_co_cached->_co_code =  PyBytes_FromStringAndSize((const char *)code.co_code_adaptive.data(), code.co_code_adaptive.size());
 }
 
 static PyCodeObject *create_pycode_object(serdes::DeserializedCodeObject& code_obj) {
