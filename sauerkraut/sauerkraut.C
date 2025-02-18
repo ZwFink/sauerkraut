@@ -663,6 +663,41 @@ static PyObject *run_frame_direct(py_weakref<PyFrameObject> frame) {
 
 }
 
+static bool handle_replace_locals(PyObject* replace_locals, py_weakref<PyFrameObject> frame) {
+    if (replace_locals != NULL) {
+        if (!utils::py::check_dict(replace_locals)) {    
+            PyErr_SetString(PyExc_TypeError, "replace_locals must be a dictionary");
+            return false;
+        }
+        utils::py::replace_locals(frame, replace_locals);
+    }
+    return true;
+}
+
+static PyObject *deserialize_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
+    PyObject *bytes;
+    int run = 0;  // Default to False
+    PyObject *replace_locals = NULL;
+    static char *kwlist[] = {"frame", "replace_locals", "run", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|Op", kwlist, &bytes, &replace_locals, &run)) {
+        return NULL;
+    }
+
+    PyObject *deser_result = _deserialize_frame(bytes, run);
+    PyObject *ret_obj = deser_result;
+
+    if (!handle_replace_locals(replace_locals, (PyFrameObject*)deser_result)) {
+        return NULL;
+    }
+
+    if(run) {
+        ret_obj = PyEval_EvalFrame((PyFrameObject*)deser_result);
+    } 
+
+    return ret_obj;
+}
+
 // First allocates frame on the frame stack, then runs it
 static PyObject *run_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyFrameObject *frame = NULL;
@@ -673,15 +708,10 @@ static PyObject *run_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
         return NULL;
     }
 
-    if (replace_locals != NULL && !utils::py::check_dict(replace_locals)) {    
-        PyErr_SetString(PyExc_TypeError, "replace_locals must be a dictionary");
-        return NULL;
-    }
-
     py_weakref<PyFrameObject> frame_ref = frame;
     
-    if (replace_locals != NULL) {
-        utils::py::replace_locals(frame_ref, replace_locals);
+    if (!handle_replace_locals(replace_locals, frame_ref)) {
+        return NULL;
     }
 
     return run_frame_direct(frame_ref);
@@ -694,36 +724,6 @@ static PyObject *serialize_frame(PyObject *self, PyObject *args) {
     }
 
     return _serialize_frame_from_capsule(capsule);
-}
-
-static PyObject *deserialize_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
-    PyObject *bytes;
-    int run = 0;  // Default to False
-    PyObject *replace_locals = NULL;
-    static char *kwlist[] = {"frame", "replace_locals", "run", NULL};
-
-    // frame and local_replacement are positional, run is keyword
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|Op", kwlist, &bytes, &replace_locals, &run)) {
-        return NULL;
-    }
-
-    if(replace_locals != NULL && !utils::py::check_dict(replace_locals)) {    
-        PyErr_SetString(PyExc_TypeError, "replace_locals must be a dictionary");
-        return NULL;
-    }
-
-    PyObject *deser_result = _deserialize_frame(bytes, run);
-    PyObject *ret_obj = deser_result;
-
-    if(replace_locals != NULL) {
-        utils::py::replace_locals((PyFrameObject*)deser_result, replace_locals);
-    }
-
-    if(run) {
-        ret_obj = PyEval_EvalFrame((PyFrameObject*)deser_result);
-    } 
-
-    return ret_obj;
 }
 
 static PyObject *copy_frame_from_greenlet(PyObject *self, PyObject *args, PyObject *kwargs) {
