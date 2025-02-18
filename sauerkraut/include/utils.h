@@ -2,6 +2,7 @@
 #define UTILS_HH_INCLUDED
 #include "sauerkraut_cpython_compat.h"
 #include <opcode_ids.h>
+#include <string>
 #include "py_structs.h"
 #include "pyref.h"
 #include <opcode_ids.h>
@@ -52,6 +53,10 @@ static PyObject **
 
 namespace utils {
     namespace py {
+       bool check_dict(PyObject *obj) {
+           return PyDict_Check(obj);
+       }
+
        int get_code_stacksize(PyCodeObject *code) {
             return code->co_stacksize;
        }
@@ -341,6 +346,35 @@ namespace utils {
             return state;
         }
 
+        void replace_locals(py_weakref<PyFrameObject> frame, PyObject *replace_locals) {
+            _PyInterpreterFrame *iframe = (_PyInterpreterFrame*) frame->f_frame;
+            std::map<std::string, int> local_idx_map;
+            PyCodeObject *code = PyFrame_GetCode((PyFrameObject*)*frame);
+            // this is a tuple of the names of the localsplus
+            PyObject *locals_plus_names = code->co_localsplusnames;
+            for(int i = 0; i < code->co_nlocalsplus; i++) {
+                PyObject *local = ((PyObject*) iframe->localsplus[i].bits);
+                std::string name = PyUnicode_AsUTF8(PyTuple_GetItem(locals_plus_names, i));
+                local_idx_map[name] = i;
+            }
+
+            for(auto &[name, local_idx] : local_idx_map) {
+                if(PyDict_Check(replace_locals)) {
+                    PyObject *py_string = PyUnicode_FromString(name.c_str());   
+                    PyObject *new_local = PyDict_GetItem(replace_locals, py_string);
+                    Py_DECREF(py_string);
+                    if(new_local != NULL) {
+                        auto local_index = local_idx_map[name];
+                        PyObject *local = (PyObject*) iframe->localsplus[local_index].bits;
+                        iframe->localsplus[local_index].bits = (intptr_t) new_local;
+
+                        Py_DECREF(local);
+                        Py_DECREF(new_local);
+                    }
+
+                }
+            }
+        }
     }
 }
 

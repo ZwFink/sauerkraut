@@ -127,7 +127,37 @@ def test_greenlet():
     gr.switch(code)
     print("Test 'greenlet' passed")
 
+def replace_locals_fn(c):
+    a = 1
+    b = 2
+    greenlet.getcurrent().parent.switch()
+    return a + b + c
+
+def test_replace_locals():
+    gr = greenlet.greenlet(replace_locals_fn)
+    gr.switch(13)
+    serframe = skt.copy_frame_from_greenlet(gr, serialize=True)
+    code = skt.deserialize_frame(serframe)
+    res = skt.run_frame(code, replace_locals={'a': 9})
+    print(f"The result is {res}")
+    assert res == 24
+
+    serframe = skt.copy_frame_from_greenlet(gr, serialize=True)
+    code = skt.deserialize_frame(serframe)
+    res = skt.run_frame(code, replace_locals={'b': 35})
+    print(f"The result is {res}")
+    assert res == 49
+
+    serframe = skt.copy_frame_from_greenlet(gr, serialize=True)
+    code = skt.deserialize_frame(serframe)
+    res = skt.run_frame(code, replace_locals={'a': 9, 'b': 35, 'c': 100})
+    print(f"The result is {res}")
+    assert res == 144
+
+    print("Test 'replace_locals' passed")
+
 test_copy_then_serialize()
 test_combined_copy_serialize()
 test_for_loop()
 test_greenlet()
+test_replace_locals()
