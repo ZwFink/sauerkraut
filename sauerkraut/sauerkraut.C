@@ -664,12 +664,26 @@ static PyObject *run_frame_direct(py_weakref<PyFrameObject> frame) {
 }
 
 // First allocates frame on the frame stack, then runs it
-static PyObject *run_frame(PyObject *self, PyObject *args) {
+static PyObject *run_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyFrameObject *frame = NULL;
-    if (!PyArg_ParseTuple(args, "O", &frame)) {
+    PyObject *replace_locals = NULL;
+    static char *kwlist[] = {"frame", "replace_locals", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|O", kwlist, &frame, &replace_locals)) {
         return NULL;
     }
+
+    if (replace_locals != NULL && !utils::py::check_dict(replace_locals)) {    
+        PyErr_SetString(PyExc_TypeError, "replace_locals must be a dictionary");
+        return NULL;
+    }
+
     py_weakref<PyFrameObject> frame_ref = frame;
+    
+    if (replace_locals != NULL) {
+        utils::py::replace_locals(frame_ref, replace_locals);
+    }
+
     return run_frame_direct(frame_ref);
 }
 
@@ -685,16 +699,25 @@ static PyObject *serialize_frame(PyObject *self, PyObject *args) {
 static PyObject *deserialize_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyObject *bytes;
     int run = 0;  // Default to False
-    
-    static char *kwlist[] = {"frame", "run", NULL};
+    PyObject *replace_locals = NULL;
+    static char *kwlist[] = {"frame", "replace_locals", "run", NULL};
 
-    
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|p", kwlist, &bytes, &run)) {
+    // frame and local_replacement are positional, run is keyword
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|Op", kwlist, &bytes, &replace_locals, &run)) {
+        return NULL;
+    }
+
+    if(replace_locals != NULL && !utils::py::check_dict(replace_locals)) {    
+        PyErr_SetString(PyExc_TypeError, "replace_locals must be a dictionary");
         return NULL;
     }
 
     PyObject *deser_result = _deserialize_frame(bytes, run);
     PyObject *ret_obj = deser_result;
+
+    if(replace_locals != NULL) {
+        utils::py::replace_locals((PyFrameObject*)deser_result, replace_locals);
+    }
 
     if(run) {
         ret_obj = PyEval_EvalFrame((PyFrameObject*)deser_result);
@@ -737,7 +760,7 @@ static PyMethodDef MyMethods[] = {
     {"copy_frame", (PyCFunction) copy_frame, METH_VARARGS | METH_KEYWORDS, "Copy a given frame"},
     {"copy_current_frame", (PyCFunction) copy_current_frame, METH_VARARGS | METH_KEYWORDS, "Copy the current frame"},
     {"deserialize_frame", (PyCFunction) deserialize_frame, METH_VARARGS | METH_KEYWORDS, "Deserialize the frame"},
-    {"run_frame", run_frame, METH_VARARGS, "Run the frame"},
+    {"run_frame", (PyCFunction) run_frame, METH_VARARGS | METH_KEYWORDS, "Run the frame"},
     {"resume_greenlet", (PyCFunction) resume_greenlet, METH_VARARGS, "Resume the frame from a greenlet"},
     {"copy_frame_from_greenlet", (PyCFunction) copy_frame_from_greenlet, METH_VARARGS | METH_KEYWORDS, "Copy the frame from a greenlet"},
     {NULL, NULL, 0, NULL}
