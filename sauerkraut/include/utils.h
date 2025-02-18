@@ -360,13 +360,18 @@ namespace utils {
 
             for(auto &[name, local_idx] : local_idx_map) {
                 if(PyDict_Check(replace_locals)) {
-                    PyObject *new_local = PyDict_GetItem(replace_locals, PyUnicode_FromString(name.c_str()));
+                    PyObject *py_string = PyUnicode_FromString(name.c_str());   
+                    PyObject *new_local = PyDict_GetItem(replace_locals, py_string);
+                    Py_DECREF(py_string);
                     if(new_local != NULL) {
                         auto local_index = local_idx_map[name];
                         PyObject *local = (PyObject*) iframe->localsplus[local_index].bits;
-                        Py_DECREF(local);
                         iframe->localsplus[local_index].bits = (intptr_t) new_local;
+
+                        Py_DECREF(local);
+                        Py_DECREF(new_local);
                     }
+
                 }
             }
         }
