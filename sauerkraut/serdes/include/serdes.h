@@ -2,6 +2,7 @@
 #define SERDES_HH_INCLUDED
 #include "sauerkraut_cpython_compat.h"
 #include <iostream>
+#include <optional>
 #include "flatbuffers/flatbuffers.h"
 #include "py_object_generated.h"
 #include "py_var_object_head_generated.h"
@@ -13,6 +14,26 @@
 #include "utils.h"
 
 namespace serdes {
+    constexpr int SERIALIZATION_SIZEHINT_DEFAULT = 1024;
+    class SerializationArgs {
+        public:
+        std::optional<utils::py::LocalExclusionBitmask> exclude_locals;
+        size_t sizehint;
+
+        SerializationArgs(std::optional<utils::py::LocalExclusionBitmask> exclude_locals, size_t sizehint) :
+            exclude_locals(exclude_locals), sizehint(sizehint) {}
+        SerializationArgs() : exclude_locals(std::nullopt), sizehint(SERIALIZATION_SIZEHINT_DEFAULT) {}
+        SerializationArgs(size_t sizehint) : exclude_locals(std::nullopt), sizehint(sizehint) {}
+
+        void set_exclude_locals(std::optional<utils::py::LocalExclusionBitmask> exclude_locals) {
+            this->exclude_locals = exclude_locals;
+        }
+
+        void set_sizehint(size_t sizehint) {
+            this->sizehint = sizehint;
+        }
+    };
+    
     template<typename Loads, typename Dumps>
     class PyObjectSerdes {
         Loads loads;
@@ -161,7 +182,7 @@ namespace serdes {
             po_serializer(po_serializer) {}
 
         template<typename Builder>
-        offsets::PyCodeObjectOffset serialize(Builder &builder, PyCodeObject *obj) {
+        offsets::PyCodeObjectOffset serialize(Builder &builder, PyCodeObject *obj, serdes::SerializationArgs& ser_args) {
             auto co_consts_ser = (NULL != obj->co_consts) ? 
                 std::optional{po_serializer.serialize(builder, obj->co_consts)} : std::nullopt;
 
@@ -320,17 +341,23 @@ namespace serdes {
             return stack_offset;
         }
         template<typename Builder>
-        flatbuffers::Offset<flatbuffers::Vector<offsets::PyObjectOffset>> serialize_fast_locals_plus(Builder &builder, sauerkraut::PyInterpreterFrame &obj) {
+        flatbuffers::Offset<flatbuffers::Vector<offsets::PyObjectOffset>> serialize_fast_locals_plus(Builder &builder, sauerkraut::PyInterpreterFrame &obj, serdes::SerializationArgs& ser_args) {
             auto n_locals = utils::py::get_code_nlocals((PyCodeObject*)obj.f_executable.bits);
+            auto exclude_local_bitmask = ser_args.exclude_locals.value_or(std::vector<bool>(n_locals, false));
             std::vector<offsets::PyObjectOffset> localsplus;
             localsplus.reserve(n_locals);
 
             for(int i = 0; i < n_locals; i++) {
                 auto local = obj.localsplus[i];
                 PyObject *local_pyobj = (PyObject*)local.bits;
-                // a local can be NULL if it has not
-                // initialized in the program by this point
-                if(NULL == local_pyobj) {
+
+                if(NULL == local_pyobj || exclude_local_bitmask[i]) {
+                    // If the local is NULL or excluded, we need to still serialize some
+                    // representation of it, so we can assign frame.locals[i] = deserialized_locals[i]
+                    // Otherwise, we will create problems by shifting our locals
+                    auto local_ser = po_serializer.serialize(builder, Py_None);
+                    localsplus.push_back(local_ser);
+
                     continue;
                 }
 
@@ -347,15 +374,15 @@ namespace serdes {
             code_serializer(po_serializer) {}
 
         template<typename Builder>
-        offsets::PyInterpreterFrameOffset serialize(Builder &builder, sauerkraut::PyInterpreterFrame &obj, int stack_depth) {
-            auto f_executable_ser = code_serializer.serialize(builder, (PyCodeObject*)obj.f_executable.bits);
+        offsets::PyInterpreterFrameOffset serialize(Builder &builder, sauerkraut::PyInterpreterFrame &obj, int stack_depth, serdes::SerializationArgs& ser_args) {
+            auto f_executable_ser = code_serializer.serialize(builder, (PyCodeObject*)obj.f_executable.bits, ser_args);
             auto f_func_obj_ser = po_serializer.serialize(builder, obj.f_funcobj);
             auto f_globals_ser = po_serializer.serialize(builder, obj.f_globals);
 
             auto f_locals_ser = (NULL != obj.f_locals) ? 
                 std::optional{po_serializer.serialize(builder, obj.f_locals)} : std::nullopt;
 
-            auto fast_locals_ser = serialize_fast_locals_plus(builder, obj);
+            auto fast_locals_ser = serialize_fast_locals_plus(builder, obj, ser_args);
             auto stack_ser = serialize_stack(builder, obj, stack_depth);
 
             pyframe_buffer::PyInterpreterFrameBuilder frame_builder(builder);
@@ -428,10 +455,10 @@ namespace serdes {
                           poh_serializer(po_serializer) {}
 
             template<typename Builder>
-            offsets::PyFrameOffset serialize(Builder &builder, sauerkraut::PyFrame &obj) {
+            offsets::PyFrameOffset serialize(Builder &builder, sauerkraut::PyFrame &obj, serdes::SerializationArgs& ser_args) {
                 PyInterpreterFrameSerdes interpreter_frame_serializer(po_serializer);
                 auto stack_size = utils::py::get_stack_state((PyObject*)&obj).size();
-                auto interp_frame_offset = interpreter_frame_serializer.serialize(builder, *obj.f_frame, stack_size);
+                auto interp_frame_offset = interpreter_frame_serializer.serialize(builder, *obj.f_frame, stack_size, ser_args);
 
                 pyframe_buffer::PyFrameBuilder frame_builder(builder);
                 // Do NOT serialize the ob_base.

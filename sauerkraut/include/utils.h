@@ -3,10 +3,13 @@
 #include "sauerkraut_cpython_compat.h"
 #include <opcode_ids.h>
 #include <string>
-#include "py_structs.h"
-#include "pyref.h"
 #include <opcode_ids.h>
 #include <map>
+#include <iterator>
+#include <stdexcept>
+
+#include "py_structs.h"
+#include "pyref.h"
 
 namespace {
 
@@ -51,6 +54,137 @@ static PyObject **
 
 }
 
+namespace utils {
+    namespace py
+    {
+        class PyIterator
+        {
+        public:
+            using iterator_category = std::input_iterator_tag;
+            using value_type = PyObject *;
+            using difference_type = std::ptrdiff_t;
+            using pointer = PyObject **;
+            using reference = PyObject *&;
+
+            PyIterator(PyObject *iterable = nullptr, bool end = false) : current_item(nullptr)
+            {
+                if (end || !iterable)
+                {
+                    iterator = nullptr;
+                    return;
+                }
+
+                iterator = PyObject_GetIter(iterable);
+                if (!iterator)
+                {
+                    PyErr_Print();
+                    throw std::runtime_error("Failed to get iterator from Python object");
+                }
+
+                ++(*this);
+            }
+
+            ~PyIterator()
+            {
+                Py_XDECREF(iterator);
+                Py_XDECREF(current_item);
+            }
+
+            PyIterator(const PyIterator &other) : iterator(other.iterator), current_item(other.current_item)
+            {
+                Py_XINCREF(iterator);
+                Py_XINCREF(current_item);
+            }
+
+            PyIterator(PyIterator &&other) noexcept : iterator(other.iterator), current_item(other.current_item)
+            {
+                other.iterator = nullptr;
+                other.current_item = nullptr;
+            }
+
+            PyIterator &operator++()
+            {
+                Py_XDECREF(current_item);
+                current_item = iterator ? PyIter_Next(iterator) : nullptr;
+
+                // If we hit the end or an error occurred, clean up iterator
+                if (!current_item && iterator)
+                {
+                    if (PyErr_Occurred())
+                    {
+                        PyErr_Print();
+                    }
+                    Py_DECREF(iterator);
+                    iterator = nullptr;
+                }
+
+                return *this;
+            }
+
+            PyIterator operator++(int)
+            {
+                PyIterator tmp(*this);
+                ++(*this);
+                return tmp;
+            }
+
+            pyobject_weakref operator*() const
+            {
+                if (!current_item)
+                {
+                    throw std::runtime_error("Dereferencing end iterator");
+                }
+                return make_weakref(current_item);
+            }
+
+            bool operator==(const PyIterator &other) const
+            {
+                return (current_item == other.current_item);
+            }
+
+            bool operator!=(const PyIterator &other) const
+            {
+                return !(*this == other);
+            }
+
+        private:
+            PyObject *iterator;
+            PyObject *current_item;
+        };
+
+        class PyIterable
+        {
+        public:
+            PyIterable(PyObject *obj) : iterable(obj)
+            {
+                if (!obj)
+                {
+                    throw std::invalid_argument("Null PyObject provided");
+                }
+                Py_INCREF(iterable);
+            }
+
+            ~PyIterable()
+            {
+                Py_DECREF(iterable);
+            }
+
+            PyIterator begin() const
+            {
+                return PyIterator(iterable);
+            }
+
+            PyIterator end() const
+            {
+                return PyIterator(nullptr, true);
+            }
+
+        private:
+            PyObject *iterable;
+        };
+
+    }
+}
 namespace utils {
     namespace py {
        bool check_dict(PyObject *obj) {
@@ -346,20 +480,52 @@ namespace utils {
             return state;
         }
 
-        void replace_locals(py_weakref<PyFrameObject> frame, PyObject *replace_locals) {
+        using LocalNameMap = std::map<std::string, int>;
+        using LocalExclusionBitmask = std::vector<bool>;
+
+        LocalNameMap get_local_name_map(py_weakref<PyFrameObject> frame) {
             _PyInterpreterFrame *iframe = (_PyInterpreterFrame*) frame->f_frame;
-            std::map<std::string, int> local_idx_map;
             PyCodeObject *code = PyFrame_GetCode((PyFrameObject*)*frame);
             // this is a tuple of the names of the localsplus
             PyObject *locals_plus_names = code->co_localsplusnames;
+            LocalNameMap local_idx_map;
+
             for(int i = 0; i < code->co_nlocalsplus; i++) {
                 PyObject *local = ((PyObject*) iframe->localsplus[i].bits);
                 std::string name = PyUnicode_AsUTF8(PyTuple_GetItem(locals_plus_names, i));
                 local_idx_map[name] = i;
             }
+            return local_idx_map;
+        }
+
+        LocalExclusionBitmask exclude_locals(py_weakref<PyFrameObject> frame, PyObject *exclude_locals) {
+            _PyInterpreterFrame *iframe = (_PyInterpreterFrame*) frame->f_frame;
+            PyCodeObject *code = PyFrame_GetCode(*frame);
+            LocalExclusionBitmask bitmask(code->co_nlocalsplus);
+            LocalNameMap local_idx_map = get_local_name_map(frame);
+
+            PyIterable locals_to_exclude(exclude_locals);
+            for(auto local : locals_to_exclude) {
+                std::string local_name = PyUnicode_AsUTF8(*local);
+                auto it = local_idx_map.find(local_name);
+                if(it != local_idx_map.end()) {
+                    bitmask[it->second] = true;
+                }
+            }
+            return bitmask;
+        }
+
+        void replace_locals(py_weakref<PyFrameObject> frame, PyObject *replace_locals) {
+            _PyInterpreterFrame *iframe = (_PyInterpreterFrame*) frame->f_frame;
+            LocalNameMap local_idx_map = get_local_name_map(frame);
+            PyCodeObject *code = PyFrame_GetCode((PyFrameObject*)*frame);
+
+            if(!PyDict_Check(replace_locals)) {
+                PyErr_SetString(PyExc_TypeError, "replace_locals must be a dictionary");
+                return;
+            }
 
             for(auto &[name, local_idx] : local_idx_map) {
-                if(PyDict_Check(replace_locals)) {
                     PyObject *py_string = PyUnicode_FromString(name.c_str());   
                     PyObject *new_local = PyDict_GetItem(replace_locals, py_string);
                     Py_DECREF(py_string);
@@ -370,8 +536,6 @@ namespace utils {
 
                         Py_DECREF(local);
                         Py_DECREF(new_local);
-                    }
-
                 }
             }
         }

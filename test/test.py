@@ -156,8 +156,75 @@ def test_replace_locals():
 
     print("Test 'replace_locals' passed")
 
+
+def exclude_locals_greenletfn(c):
+    a = 1
+    b = 2
+    greenlet.getcurrent().parent.switch()
+    return a + b + c
+
+
+def exclude_locals_current_frame_fn(c, exclude_locals=None):
+    global calls
+    calls += 1
+    g = 4
+    frame_bytes = skt.copy_current_frame(serialize=True, exclude_locals=exclude_locals)
+    if calls == 1:
+        g = 5
+        calls += 1
+        hidden_inner = 55
+        return frame_bytes
+    else:
+        print(f'calls={calls}, c={c}, g={g}')
+        retval = calls + c + g
+    return retval
+
+
+def test_exclude_locals_greenlet():
+    gr = greenlet.greenlet(exclude_locals_greenletfn)
+    gr.switch(13)
+    serframe = skt.copy_frame_from_greenlet(gr, serialize=True, exclude_locals={'a'})
+    deserframe = skt.deserialize_frame(serframe)
+    try:
+        res = skt.run_frame(deserframe)
+    except TypeError as e:
+        print("When you forget to replace an excluded local, 'None' is used in its place!")
+
+    result = skt.deserialize_frame(serframe, replace_locals={'a': 9}, run=True)
+    assert result == 24
+
+    gr2 = greenlet.greenlet(exclude_locals_greenletfn)
+    gr2.switch(13)
+    serframe = skt.copy_frame_from_greenlet(gr2, serialize=True, exclude_locals=['c', 'b'])
+    deserframe = skt.deserialize_frame(serframe)
+    result = skt.run_frame(deserframe, replace_locals={'c': 100, 'b': 35})
+    assert result == 136
+
+def test_exclude_locals_current_frame():
+    global calls
+    calls = 0
+    exclude_locals = {'exclude_locals', 'g'}
+    frm_bytes = exclude_locals_current_frame_fn(13, exclude_locals)
+    result = skt.deserialize_frame(frm_bytes, run=True, replace_locals={'g': 8})
+    print(f"The result is {result}")
+    assert result == 23
+
+    calls = 0
+    exclude_locals = {'exclude_locals', 'c'}
+    frm_bytes = exclude_locals_current_frame_fn(13, exclude_locals)
+    result = skt.deserialize_frame(frm_bytes, run=True, replace_locals={'c': 100})
+    print(f"The result is {result}")
+    assert result == 106
+
+
+
+def test_exclude_locals():
+    test_exclude_locals_greenlet()
+    test_exclude_locals_current_frame()
+
 test_copy_then_serialize()
 test_combined_copy_serialize()
 test_for_loop()
 test_greenlet()
 test_replace_locals()
+test_exclude_locals()
