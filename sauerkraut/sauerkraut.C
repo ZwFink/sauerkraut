@@ -58,8 +58,8 @@ static sauerkraut_modulestate *sauerkraut_state;
 extern "C" {
 
 struct frame_copy_capsule;
-static PyObject *_serialize_frame_direct_from_capsule(frame_copy_capsule *copy_capsule);
-static PyObject *_serialize_frame_from_capsule(PyObject *capsule);
+static PyObject *_serialize_frame_direct_from_capsule(frame_copy_capsule *copy_capsule, serdes::SerializationArgs args);
+static PyObject *_serialize_frame_from_capsule(PyObject *capsule, serdes::SerializationArgs args);
 
 static inline _PyStackRef *_PyFrame_Stackbase(_PyInterpreterFrame *f) {
     return f->localsplus + ((PyCodeObject*)f->f_executable.bits)->co_nlocalsplus;
@@ -73,6 +73,27 @@ typedef struct serialized_obj {
     char *data;
     size_t size;
 } serialized_obj;
+
+
+static bool handle_exclude_locals(PyObject* exclude_locals, py_weakref<PyFrameObject> frame, serdes::SerializationArgs& ser_args) {
+    if(exclude_locals != NULL) {
+        auto bitmask = utils::py::exclude_locals(frame, exclude_locals);
+        ser_args.set_exclude_locals(bitmask);
+    }
+    return true;
+}
+
+
+static bool handle_replace_locals(PyObject* replace_locals, py_weakref<PyFrameObject> frame) {
+    if (replace_locals != NULL) {
+        if (!utils::py::check_dict(replace_locals)) {    
+            PyErr_SetString(PyExc_TypeError, "replace_locals must be a dictionary");
+            return false;
+        }
+        utils::py::replace_locals(frame, replace_locals);
+    }
+    return true;
+}
 
 PyObject *GetFrameLocalsFromFrame(py_weakref<PyObject> frame) {
     py_weakref<PyFrameObject> current_frame{(PyFrameObject *)*frame};
@@ -269,7 +290,7 @@ PyFrameObject *push_frame_for_running(PyThreadState *tstate, _PyInterpreterFrame
     return *prepare_frame_for_execution(pyframe_object);
 }
 
-static PyObject *_copy_frame_object(py_weakref<PyFrameObject> frame) {
+static PyObject *_copy_frame_object(py_weakref<PyFrameObject> frame, serdes::SerializationArgs args) {
     using namespace utils;
     _PyInterpreterFrame *to_copy = frame->f_frame;
     // utils::py::print_stack_pointed_obj(to_copy);
@@ -296,62 +317,70 @@ static PyObject *_copy_frame_object(py_weakref<PyFrameObject> frame) {
     return capsule;
 }
 
-static PyObject *_copy_current_frame(PyObject *self, PyObject *args) {
+static PyObject *_copy_current_frame(PyObject *self, PyObject *args, PyObject *exclude_locals) {
     using namespace utils;
     PyFrameObject *frame = (PyFrameObject*) PyEval_GetFrame();
-    return _copy_frame_object(make_weakref(frame));
+    serdes::SerializationArgs ser_args;
+    handle_exclude_locals(exclude_locals, make_weakref(frame), ser_args);
+    return _copy_frame_object(make_weakref(frame), ser_args);
 }
 
-static PyObject *_copy_serialize_frame_object(py_weakref<PyFrameObject> frame) {
+static PyObject *_copy_serialize_frame_object(py_weakref<PyFrameObject> frame, serdes::SerializationArgs args) {
     using namespace utils;
     auto stack_state = utils::py::get_stack_state((PyObject*)*frame);
     std::unique_ptr<frame_copy_capsule> capsule(frame_copy_capsule_create_direct(frame, stack_state));
 
-    PyObject *ret = _serialize_frame_direct_from_capsule(capsule.get());
+    PyObject *ret = _serialize_frame_direct_from_capsule(capsule.get(), args);
     return ret;
 }
 
-static PyObject *_copy_serialize_current_frame(PyObject *self, PyObject *args) {
+static PyObject *_copy_serialize_current_frame(PyObject *self, PyObject *args, PyObject *exclude_locals) {
     // here, we'll copy the frame "directly" into the serialized buffer
     using namespace utils;
     PyFrameObject *frame = (PyFrameObject*) PyEval_GetFrame();
-    return _copy_serialize_frame_object(make_weakref(frame));
+    serdes::SerializationArgs ser_args;
+    handle_exclude_locals(exclude_locals, make_weakref(frame), ser_args);
+    return _copy_serialize_frame_object(make_weakref(frame), ser_args);
 }
 
 static PyObject *copy_current_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
     int serialize = 0;  // Default to True
-    
-    static char *kwlist[] = {"serialize", NULL};
+    PyObject *exclude_locals = NULL;
+    static char *kwlist[] = {"serialize", "exclude_locals", NULL};
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|p", kwlist, &serialize)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|pO", kwlist, &serialize, &exclude_locals)) {
         return NULL;
     }
 
     if(serialize) {
-        return _copy_serialize_current_frame(self, args);
+        return _copy_serialize_current_frame(self, args, exclude_locals);
     } else {
-        return _copy_current_frame(self, args);
+        return _copy_current_frame(self, args, exclude_locals);
     }
 
     return Py_None;
 }
 
 static PyObject *copy_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
-    PyObject *frame;
+    PyObject *frame = NULL;
+    PyObject *exclude_locals = NULL;
     int serialize = 0;  // Default to True
     
-    static char *kwlist[] = {"frame", "serialize", NULL};
+    static char *kwlist[] = {"frame", "exclude_locals", "serialize", NULL};
     
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|p", kwlist, &frame, &serialize)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|Op", kwlist, &frame, &exclude_locals, &serialize)) {
         return NULL;
     }
     // py_weakref<PyFrameObject> frame_ref{(PyFrameObject*)frame};
     py_weakref<PyFrameObject> frame_ref{PyFrame_GetBack((PyFrameObject*)frame)};
 
+    serdes::SerializationArgs ser_args;
+    handle_exclude_locals(exclude_locals, frame_ref, ser_args);
+
     if(serialize) {
-        return _copy_serialize_frame_object(frame_ref);
+        return _copy_serialize_frame_object(frame_ref, ser_args);
     } else {
-        return _copy_frame_object(frame_ref);
+        return _copy_frame_object(frame_ref, ser_args);
     }
 
     return Py_None;
@@ -427,16 +456,16 @@ static PyObject *copy_and_run_frame(PyObject *self, PyObject *args) {
 //     return _copy_run_frame_from_capsule(capsule);
 // }
 
-static PyObject *_serialize_frame_direct_from_capsule(frame_copy_capsule *copy_capsule) {
+static PyObject *_serialize_frame_direct_from_capsule(frame_copy_capsule *copy_capsule, serdes::SerializationArgs args) {
     loads_functor loads(sauerkraut_state->pickle_loads);
     dumps_functor dumps(sauerkraut_state->pickle_dumps);
 
-    flatbuffers::FlatBufferBuilder builder{1024};
+    flatbuffers::FlatBufferBuilder builder{args.sizehint};
     serdes::PyObjectSerdes po_serdes(loads, dumps);
 
     serdes::PyFrameSerdes frame_serdes{po_serdes};
 
-    auto serialized_frame = frame_serdes.serialize(builder, *(static_cast<sauerkraut::PyFrame*>(copy_capsule->frame)));
+    auto serialized_frame = frame_serdes.serialize(builder, *(static_cast<sauerkraut::PyFrame*>(copy_capsule->frame)), args);
     builder.Finish(serialized_frame);
     auto buf = builder.GetBufferPointer();
     auto size = builder.GetSize();
@@ -444,7 +473,7 @@ static PyObject *_serialize_frame_direct_from_capsule(frame_copy_capsule *copy_c
     return bytes;
 }
 
-static PyObject* _serialize_frame_from_capsule(PyObject *capsule) {
+static PyObject* _serialize_frame_from_capsule(PyObject *capsule, serdes::SerializationArgs args) {
     if (PyErr_Occurred()) {
         PyErr_Print();
         return NULL;
@@ -455,7 +484,7 @@ static PyObject* _serialize_frame_from_capsule(PyObject *capsule) {
         return NULL;
     }
 
-    return _serialize_frame_direct_from_capsule(copy_capsule);
+    return _serialize_frame_direct_from_capsule(copy_capsule, args);
 }
 
 static void init_code(PyCodeObject *obj, serdes::DeserializedCodeObject &code) {
@@ -663,16 +692,6 @@ static PyObject *run_frame_direct(py_weakref<PyFrameObject> frame) {
 
 }
 
-static bool handle_replace_locals(PyObject* replace_locals, py_weakref<PyFrameObject> frame) {
-    if (replace_locals != NULL) {
-        if (!utils::py::check_dict(replace_locals)) {    
-            PyErr_SetString(PyExc_TypeError, "replace_locals must be a dictionary");
-            return false;
-        }
-        utils::py::replace_locals(frame, replace_locals);
-    }
-    return true;
-}
 
 static PyObject *deserialize_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyObject *bytes;
@@ -723,22 +742,29 @@ static PyObject *serialize_frame(PyObject *self, PyObject *args) {
         return NULL;
     }
 
-    return _serialize_frame_from_capsule(capsule);
+    return _serialize_frame_from_capsule(capsule, serdes::SerializationArgs());
 }
 
 static PyObject *copy_frame_from_greenlet(PyObject *self, PyObject *args, PyObject *kwargs) {
-    PyObject *greenlet;
+    PyObject *greenlet = NULL;
+    PyObject *exclude_locals = NULL;
     int serialize = 0;
-    static char *kwlist[] = {"greenlet", "serialize", NULL};
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|p", kwlist, &greenlet, &serialize)) {
+    static char *kwlist[] = {"greenlet", "exclude_locals", "serialize", NULL};
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|Op", kwlist, &greenlet, &exclude_locals, &serialize)) {
         return NULL;
     }
+
+    serdes::SerializationArgs ser_args;
+
     assert(greenlet::is_greenlet(greenlet));
     auto frame = make_weakref(greenlet::getframe(greenlet));
+
+    handle_exclude_locals(exclude_locals, frame, ser_args);
+
     if(serialize) {
-        return _copy_serialize_frame_object(frame);
+        return _copy_serialize_frame_object(frame, ser_args);
     }
-    return _copy_frame_object(frame);
+    return _copy_frame_object(frame, ser_args);
 }
 
 static PyObject *_resume_greenlet(py_weakref<PyFrameObject> frame) {
