@@ -480,20 +480,52 @@ namespace utils {
             return state;
         }
 
-        void replace_locals(py_weakref<PyFrameObject> frame, PyObject *replace_locals) {
+        using LocalNameMap = std::map<std::string, int>;
+        using LocalExclusionBitmask = std::vector<bool>;
+
+        LocalNameMap get_local_name_map(py_weakref<PyFrameObject> frame) {
             _PyInterpreterFrame *iframe = (_PyInterpreterFrame*) frame->f_frame;
-            std::map<std::string, int> local_idx_map;
             PyCodeObject *code = PyFrame_GetCode((PyFrameObject*)*frame);
             // this is a tuple of the names of the localsplus
             PyObject *locals_plus_names = code->co_localsplusnames;
+            LocalNameMap local_idx_map;
+
             for(int i = 0; i < code->co_nlocalsplus; i++) {
                 PyObject *local = ((PyObject*) iframe->localsplus[i].bits);
                 std::string name = PyUnicode_AsUTF8(PyTuple_GetItem(locals_plus_names, i));
                 local_idx_map[name] = i;
             }
+            return local_idx_map;
+        }
+
+        LocalExclusionBitmask exclude_locals(py_weakref<PyFrameObject> frame, PyObject *exclude_locals) {
+            _PyInterpreterFrame *iframe = (_PyInterpreterFrame*) frame->f_frame;
+            PyCodeObject *code = PyFrame_GetCode(*frame);
+            LocalExclusionBitmask bitmask(code->co_nlocalsplus);
+            LocalNameMap local_idx_map = get_local_name_map(frame);
+
+            PyIterable locals_to_exclude(exclude_locals);
+            for(auto local : locals_to_exclude) {
+                std::string local_name = PyUnicode_AsUTF8(*local);
+                auto it = local_idx_map.find(local_name);
+                if(it != local_idx_map.end()) {
+                    bitmask[it->second] = true;
+                }
+            }
+            return bitmask;
+        }
+
+        void replace_locals(py_weakref<PyFrameObject> frame, PyObject *replace_locals) {
+            _PyInterpreterFrame *iframe = (_PyInterpreterFrame*) frame->f_frame;
+            LocalNameMap local_idx_map = get_local_name_map(frame);
+            PyCodeObject *code = PyFrame_GetCode((PyFrameObject*)*frame);
+
+            if(!PyDict_Check(replace_locals)) {
+                PyErr_SetString(PyExc_TypeError, "replace_locals must be a dictionary");
+                return;
+            }
 
             for(auto &[name, local_idx] : local_idx_map) {
-                if(PyDict_Check(replace_locals)) {
                     PyObject *py_string = PyUnicode_FromString(name.c_str());   
                     PyObject *new_local = PyDict_GetItem(replace_locals, py_string);
                     Py_DECREF(py_string);
@@ -504,8 +536,6 @@ namespace utils {
 
                         Py_DECREF(local);
                         Py_DECREF(new_local);
-                    }
-
                 }
             }
         }
