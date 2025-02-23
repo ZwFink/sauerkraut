@@ -85,7 +85,7 @@ static bool handle_exclude_locals(PyObject* exclude_locals, py_weakref<PyFrameOb
 
 
 static bool handle_replace_locals(PyObject* replace_locals, py_weakref<PyFrameObject> frame) {
-    if (replace_locals != NULL) {
+    if (replace_locals != NULL && replace_locals != Py_None) {
         if (!utils::py::check_dict(replace_locals)) {    
             PyErr_SetString(PyExc_TypeError, "replace_locals must be a dictionary");
             return false;
