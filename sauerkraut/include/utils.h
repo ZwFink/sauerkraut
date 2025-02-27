@@ -538,17 +538,40 @@ namespace utils {
                 return;
             }
 
-            for(auto &[name, local_idx] : local_idx_map) {
-                    PyObject *py_string = PyUnicode_FromString(name.c_str());   
-                    PyObject *new_local = PyDict_GetItem(replace_locals, py_string);
-                    Py_DECREF(py_string);
-                    if(new_local != NULL) {
-                        auto local_index = local_idx_map[name];
-                        PyObject *local = (PyObject*) iframe->localsplus[local_index].bits;
-                        iframe->localsplus[local_index].bits = (intptr_t) new_local;
-
-                        Py_DECREF(local);
-                        Py_DECREF(new_local);
+            PyObject *key, *value;
+            Py_ssize_t pos = 0;
+            
+            while (PyDict_Next(replace_locals, &pos, &key, &value)) {
+                int local_index = -1;
+                
+                if (PyUnicode_Check(key)) {
+                    // Handle string keys (variable names)
+                    std::string name = PyUnicode_AsUTF8(key);
+                    auto it = local_idx_map.find(name);
+                    if (it != local_idx_map.end()) {
+                        local_index = it->second;
+                    }
+                } else if (PyLong_Check(key)) {
+                    // Handle integer keys (direct indices)
+                    local_index = PyLong_AsLong(key);
+                    if (local_index < 0 || local_index >= code->co_nlocalsplus) {
+                        PyErr_SetString(PyExc_IndexError, "replace_locals index out of range");
+                        return;
+                    }
+                } else {
+                    PyErr_SetString(PyExc_TypeError, "replace_locals key must be a string or integer");
+                    return;
+                }
+                
+                if (local_index >= 0) {
+                    PyObject *old_local = (PyObject*) iframe->localsplus[local_index].bits;
+                    
+                    // Increment reference count of new value before assigning
+                    Py_INCREF(value);
+                    iframe->localsplus[local_index].bits = (intptr_t) value;
+                    
+                    // Decrement reference count of old value
+                    Py_XDECREF(old_local);
                 }
             }
         }

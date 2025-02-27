@@ -220,10 +220,9 @@ def test_exclude_locals_current_frame():
     calls = 0
     exclude_locals = {'exclude_locals', 0}
     frm_bytes = exclude_locals_current_frame_fn(13, exclude_locals)
-    try:
-        result = skt.deserialize_frame(frm_bytes, run=True)
-    except TypeError as e:
-        print("When you forget to replace an excluded local, 'None' is used in its place!")
+    result = skt.deserialize_frame(frm_bytes, replace_locals={0: 25}, run=True)
+    print(f"The result is {result}")
+    assert result == 31
 
 
     print("Test 'exclude_locals_current_frame' passed")
