@@ -506,10 +506,23 @@ namespace utils {
 
             PyIterable locals_to_exclude(exclude_locals);
             for(auto local : locals_to_exclude) {
-                std::string local_name = PyUnicode_AsUTF8(*local);
-                auto it = local_idx_map.find(local_name);
-                if(it != local_idx_map.end()) {
-                    bitmask[it->second] = true;
+                if(PyUnicode_Check(*local)) {
+                    std::string local_name = PyUnicode_AsUTF8(*local);
+                    auto it = local_idx_map.find(local_name);
+                    if(it != local_idx_map.end()) {
+                        bitmask[it->second] = true;
+                    }
+                } else if(PyLong_Check(*local)) {
+                    int local_idx = PyLong_AsLong(*local);
+                    if(local_idx >= 0 && local_idx < code->co_nlocalsplus) {
+                        bitmask[local_idx] = true;
+                    } else {
+                        PyErr_SetString(PyExc_IndexError, "exclude_locals index out of range");
+                        return LocalExclusionBitmask();
+                    }
+                } else {
+                    PyErr_SetString(PyExc_TypeError, "exclude_locals must be an iterable of strings or integers");
+                    return LocalExclusionBitmask();
                 }
             }
             return bitmask;
