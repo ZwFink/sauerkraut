@@ -199,6 +199,7 @@ def test_exclude_locals_greenlet():
     deserframe = skt.deserialize_frame(serframe)
     result = skt.run_frame(deserframe, replace_locals={'c': 100, 'b': 35})
     assert result == 136
+    print("Test 'exclude_locals_greenlet' passed")
 
 def test_exclude_locals_current_frame():
     global calls
@@ -216,7 +217,16 @@ def test_exclude_locals_current_frame():
     print(f"The result is {result}")
     assert result == 106
 
+    calls = 0
+    exclude_locals = {'exclude_locals', 0}
+    frm_bytes = exclude_locals_current_frame_fn(13, exclude_locals)
+    try:
+        result = skt.deserialize_frame(frm_bytes, run=True)
+    except TypeError as e:
+        print("When you forget to replace an excluded local, 'None' is used in its place!")
 
+
+    print("Test 'exclude_locals_current_frame' passed")
 
 def test_exclude_locals():
     test_exclude_locals_greenlet()
