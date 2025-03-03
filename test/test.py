@@ -7,7 +7,7 @@ def test1_fn(c):
     global calls
     calls += 1
     g = 4
-    frm_copy = skt.copy_current_frame()
+    frm_copy = skt.copy_current_frame(sizehint=128)
     if calls == 1:
         g = 5
         calls += 1
@@ -24,7 +24,7 @@ def test_copy_then_serialize():
     global calls
     calls = 0
     frm = test1_fn(55)
-    serframe = skt.serialize_frame(frm)
+    serframe = skt.serialize_frame(frm, sizehint=5)
     with open('serialized_frame.bin', 'wb') as f:
         f.write(serframe)
     with open('serialized_frame.bin', 'rb') as f:
@@ -183,7 +183,7 @@ def exclude_locals_current_frame_fn(c, exclude_locals=None):
 def test_exclude_locals_greenlet():
     gr = greenlet.greenlet(exclude_locals_greenletfn)
     gr.switch(13)
-    serframe = skt.copy_frame_from_greenlet(gr, serialize=True, exclude_locals={'a'})
+    serframe = skt.copy_frame_from_greenlet(gr, serialize=True, exclude_locals={'a'}, sizehint=500)
     deserframe = skt.deserialize_frame(serframe)
     try:
         res = skt.run_frame(deserframe)
