@@ -219,7 +219,7 @@ namespace utils {
 
         template <Units Unit>
         Py_ssize_t get_instr_offset(py_weakref<struct _frame> frame) {
-            PyCodeObject *code = PyFrame_GetCode(*frame);
+            pycode_strongref code = pycode_strongref::steal(PyFrame_GetCode(*frame));
             Py_ssize_t first_instr_addr = (Py_ssize_t) code->co_code_adaptive;
             Py_ssize_t current_instr_addr = (Py_ssize_t) frame->f_frame->instr_ptr;
             Py_ssize_t offset = current_instr_addr - first_instr_addr;
@@ -229,8 +229,6 @@ namespace utils {
             } else if constexpr (Unit == Units::Instructions) {
                 return offset / 2; // Assuming each instruction is 2 bytes
             }
-
-            Py_DECREF(code);
         }
         char get_current_opcode(py_weakref<struct _frame> frame) {
             return frame->f_frame->instr_ptr->opcode;
@@ -348,11 +346,10 @@ namespace utils {
         }
 
         Py_ssize_t skip_current_call_instruction(py_weakref<PyFrameObject> frame) {
-            PyCodeObject *code = PyFrame_GetCode(*frame);
+            pycode_strongref code = pycode_strongref::steal(PyFrame_GetCode(*frame));
             Py_ssize_t base_offset = get_instr_offset<Units::Bytes>(*frame);
             Py_ssize_t offset = get_instr_offset<Units::Bytes>(*frame) + get_offset_for_skipping_call(get_current_opcode(frame));
             frame->f_frame->instr_ptr = (_CodeUnit*) (code->co_code_adaptive + offset);
-            Py_DECREF(code);
             return offset;
         }
 
@@ -385,12 +382,12 @@ namespace utils {
             // We consider only loops.
             // sauerkraut::PyCodeObject *code = (sauerkraut::PyCodeObject*) iframe->f_executable.bits;
             sauerkraut::PyFrame *py_frame = (sauerkraut::PyFrame*) frame;
-            PyCodeObject *code = (PyCodeObject*) PyFrame_GetCode((PyFrameObject*)py_frame); //iframe->f_executable.bits;
+            pycode_strongref code = pycode_strongref::steal(PyFrame_GetCode((PyFrameObject*)py_frame));
 
             // divide by 2 to convert from bytes to instructions
             Py_ssize_t offset = get_instr_offset<Units::Instructions>(py_frame->f_frame);
-            PyObject *code_bytes = PyCode_GetCode(code);
-            char *bitcode = PyBytes_AsString(code_bytes);
+            pyobject_strongref code_bytes = pyobject_strongref::steal(PyCode_GetCode(code.borrow()));
+            char *bitcode = PyBytes_AsString(code_bytes.borrow());
             sauerkraut::PyBitcodeInstruction *first_instr = (sauerkraut::PyBitcodeInstruction*) bitcode;
             sauerkraut::PyBitcodeInstruction *instr = (sauerkraut::PyBitcodeInstruction*) first_instr + offset;
 
@@ -485,7 +482,7 @@ namespace utils {
 
         LocalNameMap get_local_name_map(py_weakref<PyFrameObject> frame) {
             _PyInterpreterFrame *iframe = (_PyInterpreterFrame*) frame->f_frame;
-            PyCodeObject *code = PyFrame_GetCode((PyFrameObject*)*frame);
+            pycode_strongref code = pycode_strongref::steal(PyFrame_GetCode((PyFrameObject*)*frame));
             // this is a tuple of the names of the localsplus
             PyObject *locals_plus_names = code->co_localsplusnames;
             LocalNameMap local_idx_map;
@@ -500,7 +497,7 @@ namespace utils {
 
         LocalExclusionBitmask exclude_locals(py_weakref<PyFrameObject> frame, PyObject *exclude_locals) {
             _PyInterpreterFrame *iframe = (_PyInterpreterFrame*) frame->f_frame;
-            PyCodeObject *code = PyFrame_GetCode(*frame);
+            pycode_strongref code = pycode_strongref::steal(PyFrame_GetCode(*frame));
             LocalExclusionBitmask bitmask(code->co_nlocalsplus);
             LocalNameMap local_idx_map = get_local_name_map(frame);
 
@@ -531,7 +528,7 @@ namespace utils {
         void replace_locals(py_weakref<PyFrameObject> frame, PyObject *replace_locals) {
             _PyInterpreterFrame *iframe = (_PyInterpreterFrame*) frame->f_frame;
             LocalNameMap local_idx_map = get_local_name_map(frame);
-            PyCodeObject *code = PyFrame_GetCode((PyFrameObject*)*frame);
+            pycode_strongref code = pycode_strongref::steal(PyFrame_GetCode((PyFrameObject*)*frame));
 
             if(!PyDict_Check(replace_locals)) {
                 PyErr_SetString(PyExc_TypeError, "replace_locals must be a dictionary");

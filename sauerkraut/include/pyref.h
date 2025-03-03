@@ -37,15 +37,15 @@ class py_strongref {
         return *this;
     }
 
-    PyObject *operator*() {
+    T *operator*() {
         return this->borrow();
     }
 
-    PyObject *borrow() const {
-        return (PyObject*) obj;
+    T *borrow() const {
+        return obj;
     }
 
-    void operator=(PyObject *new_obj) {
+    void operator=(T *new_obj) {
         // always steals
         obj = new_obj;
     }
@@ -58,6 +58,10 @@ class py_strongref {
         py_strongref<T> ref;
         ref = obj;
         return ref;
+    }
+
+    T *operator->() {
+        return this->borrow();
     }
 };
 
@@ -98,6 +102,8 @@ class py_weakref {
 
 using pyobject_strongref = py_strongref<PyObject>;
 using pyobject_weakref = py_weakref<PyObject>;
+using pycode_strongref = py_strongref<PyCodeObject>;
+using pycode_weakref = py_weakref<PyCodeObject>;
 
 template <typename T>
 py_weakref<T> make_weakref(T* ptr) {
