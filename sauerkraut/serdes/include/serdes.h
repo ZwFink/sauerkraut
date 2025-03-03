@@ -71,10 +71,44 @@ namespace serdes {
                 if(NULL == data) {
                     return NULL;
                 }
-                PyObject *bytes = PyBytes_FromStringAndSize((const char*)data, size);
-                return loads(bytes);
+                auto bytes = pyobject_strongref::steal(PyBytes_FromStringAndSize((const char*)data, size));
+                auto retval = loads(bytes.borrow());
+                return retval;
             }
 
+            template<typename Builder>
+            offsets::PyObjectOffset serialize_dill(Builder &builder, PyObject *obj) {
+                auto dumps_result = dumps.dill_dumps(obj);
+                if(NULL == dumps_result.borrow()) {
+                    PyErr_Print();
+                }
+                Py_ssize_t size = 0;
+                char *pickled_data;
+                if(PyBytes_AsStringAndSize(*dumps_result, &pickled_data, &size) == -1) {
+                    PyErr_Print();
+                }
+                
+                auto bytes = builder.CreateVector((const uint8_t *)pickled_data, size);
+                auto py_obj = pyframe_buffer::CreatePyObject(builder, bytes);
+
+                return py_obj;
+            }
+
+            auto deserialize_dill(const pyframe_buffer::PyObject *obj) -> decltype(loads(nullptr)) {
+                if(NULL == obj) {
+                    return NULL;
+                }
+
+                auto data = obj->data()->data();
+                auto size = obj->data()->size();
+
+                if(NULL == data) {
+                    return NULL;
+                }
+                auto bytes = pyobject_strongref::steal(PyBytes_FromStringAndSize((const char*)data, size));
+                auto retval = loads.dill_loads(bytes.borrow());
+                return retval;
+            }
 
     };
 
@@ -377,7 +411,7 @@ namespace serdes {
         offsets::PyInterpreterFrameOffset serialize(Builder &builder, sauerkraut::PyInterpreterFrame &obj, int stack_depth, serdes::SerializationArgs& ser_args) {
             auto f_executable_ser = code_serializer.serialize(builder, (PyCodeObject*)obj.f_executable.bits, ser_args);
             auto f_func_obj_ser = po_serializer.serialize(builder, obj.f_funcobj);
-            auto f_globals_ser = po_serializer.serialize(builder, obj.f_globals);
+            auto f_globals_ser = po_serializer.serialize_dill(builder, obj.f_globals);
 
             auto f_locals_ser = (NULL != obj.f_locals) ? 
                 std::optional{po_serializer.serialize(builder, obj.f_locals)} : std::nullopt;
@@ -407,7 +441,7 @@ namespace serdes {
             DeserializedPyInterpreterFrame deser;
             deser.f_executable = code_serializer.deserialize(obj->f_executable());
             deser.f_funcobj = po_serializer.deserialize(obj->f_funcobj());
-            deser.f_globals = po_serializer.deserialize(obj->f_globals());
+            deser.f_globals = po_serializer.deserialize_dill(obj->f_globals());
             deser.f_builtins = po_serializer.deserialize(obj->f_builtins());
             deser.f_locals = po_serializer.deserialize(obj->f_locals());
 

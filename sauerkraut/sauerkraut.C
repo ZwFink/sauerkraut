@@ -20,34 +20,53 @@ class sauerkraut_modulestate {
         pyobject_strongref pickle_module;
         pyobject_strongref pickle_dumps;
         pyobject_strongref pickle_loads;
+        pyobject_strongref dill_module;
+        pyobject_strongref dill_dumps;
+        pyobject_strongref dill_loads;
         sauerkraut_modulestate() {
             deepcopy_module = PyImport_ImportModule("copy");
             deepcopy = PyObject_GetAttrString(*deepcopy_module, "deepcopy");
-            pickle_module = PyImport_ImportModule("dill");
+            pickle_module = PyImport_ImportModule("pickle");
             pickle_dumps = PyObject_GetAttrString(*pickle_module, "dumps");
             pickle_loads = PyObject_GetAttrString(*pickle_module, "loads");
+
+            dill_module = PyImport_ImportModule("dill");
+            dill_dumps = PyObject_GetAttrString(*dill_module, "dumps");
+            dill_loads = PyObject_GetAttrString(*dill_module, "loads");
         }
 
 };
 
 class dumps_functor {
     pyobject_weakref pickle_dumps;
+    pyobject_weakref _dill_dumps;
     public:
-    dumps_functor(pyobject_weakref pickle_dumps) : pickle_dumps(pickle_dumps) {}
+    dumps_functor(pyobject_weakref pickle_dumps, pyobject_weakref _dill_dumps) : pickle_dumps(pickle_dumps), _dill_dumps(_dill_dumps) {}
 
     pyobject_strongref operator()(PyObject *obj) {
         PyObject *result = PyObject_CallOneArg(*pickle_dumps, obj);
+        return pyobject_strongref::steal(result);
+    }
+
+    pyobject_strongref dill_dumps(PyObject *obj) {
+        PyObject *result = PyObject_CallOneArg(*_dill_dumps, obj);
         return pyobject_strongref::steal(result);
     }
 };
 
 class loads_functor {
     pyobject_weakref pickle_loads;
+    pyobject_weakref _dill_loads;
     public:
-    loads_functor(pyobject_weakref pickle_loads) : pickle_loads(pickle_loads) {}
+    loads_functor(pyobject_weakref pickle_loads, pyobject_weakref _dill_loads) : pickle_loads(pickle_loads), _dill_loads(_dill_loads) {}
 
     pyobject_strongref operator()(PyObject *obj) {
         PyObject *result = PyObject_CallOneArg(*pickle_loads, obj);
+        return pyobject_strongref::steal(result);
+    }
+
+    pyobject_strongref dill_loads(PyObject *obj) {
+        PyObject *result = PyObject_CallOneArg(*_dill_loads, obj);
         return pyobject_strongref::steal(result);
     }
 };
@@ -498,8 +517,8 @@ static PyObject *copy_and_run_frame(PyObject *self, PyObject *args) {
 // }
 
 static PyObject *_serialize_frame_direct_from_capsule(frame_copy_capsule *copy_capsule, serdes::SerializationArgs args) {
-    loads_functor loads(sauerkraut_state->pickle_loads);
-    dumps_functor dumps(sauerkraut_state->pickle_dumps);
+    loads_functor loads(sauerkraut_state->pickle_loads, sauerkraut_state->dill_loads);
+    dumps_functor dumps(sauerkraut_state->pickle_dumps, sauerkraut_state->dill_dumps);
 
     flatbuffers::FlatBufferBuilder builder{args.sizehint};
     serdes::PyObjectSerdes po_serdes(loads, dumps);
@@ -699,8 +718,8 @@ static PyObject *_deserialize_frame(PyObject *bytes, bool inplace=false) {
         PyErr_Print();
         return NULL;
     }
-    loads_functor loads(sauerkraut_state->pickle_loads);
-    dumps_functor dumps(sauerkraut_state->pickle_dumps);
+    loads_functor loads(sauerkraut_state->pickle_loads, sauerkraut_state->dill_loads);
+    dumps_functor dumps(sauerkraut_state->pickle_dumps, sauerkraut_state->dill_dumps);
     serdes::PyObjectSerdes po_serdes(loads, dumps);
     serdes::PyFrameSerdes frame_serdes{po_serdes};
 
