@@ -400,7 +400,6 @@ static PyObject *copy_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyObject *frame = NULL;
     SerializationOptions options;
     
-    // Custom parsing for this function since it has a required positional argument
     static char *kwlist[] = {"frame", "exclude_locals", "sizehint", "serialize", NULL};
     int serialize = 0;
     PyObject* sizehint_obj = NULL;
