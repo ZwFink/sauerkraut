@@ -341,57 +341,90 @@ static PyObject *_copy_serialize_current_frame(PyObject *self, PyObject *args, P
     return _copy_serialize_frame_object(make_weakref(frame), ser_args);
 }
 
-static PyObject *copy_current_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
-    int serialize = 0;  // Default to True
-    PyObject *exclude_locals = NULL;
-    PyObject *sizehint = NULL;
-    static char *kwlist[] = {"serialize", "exclude_locals", "sizehint", NULL};
+struct SerializationOptions {
+    bool serialize = false;
+    PyObject* exclude_locals = NULL;
+    Py_ssize_t sizehint = 0;
+    
+    serdes::SerializationArgs to_ser_args() const {
+        serdes::SerializationArgs args;
+        if (sizehint > 0) {
+            args.set_sizehint(sizehint);
+        }
+        return args;
+    }
+};
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|pOO", kwlist, &serialize, &exclude_locals, &sizehint)) {
+static bool parse_sizehint(PyObject* sizehint_obj, Py_ssize_t& sizehint) {
+    if (sizehint_obj != NULL) {
+        sizehint = PyLong_AsLong(sizehint_obj);
+        if (PyErr_Occurred()) {
+            PyErr_SetString(PyExc_TypeError, "sizehint must be an integer");
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool parse_serialization_options(PyObject* args, PyObject* kwargs, SerializationOptions& options) {
+    static char* kwlist[] = {"serialize", "exclude_locals", "sizehint", NULL};
+    int serialize = 0;
+    PyObject* sizehint_obj = NULL;
+    
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|pOO", kwlist, 
+                                    &serialize, &options.exclude_locals, &sizehint_obj)) {
+        return false;
+    }
+    
+    options.serialize = (serialize != 0);
+    
+    return parse_sizehint(sizehint_obj, options.sizehint);
+}
+
+static PyObject *copy_current_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
+    SerializationOptions options;
+    if (!parse_serialization_options(args, kwargs, options)) {
         return NULL;
     }
 
-    serdes::SerializationArgs ser_args;
-    if(NULL != sizehint) {
-        ser_args.set_sizehint(PyLong_AsLong(sizehint));
-    }
+    serdes::SerializationArgs ser_args = options.to_ser_args();
 
-    if(serialize) {
-        return _copy_serialize_current_frame(self, args, exclude_locals, ser_args);
+    if (options.serialize) {
+        return _copy_serialize_current_frame(self, args, options.exclude_locals, ser_args);
     } else {
-        return _copy_current_frame(self, args, exclude_locals, ser_args);
+        return _copy_current_frame(self, args, options.exclude_locals, ser_args);
     }
-
-    return Py_None;
 }
 
 static PyObject *copy_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyObject *frame = NULL;
-    PyObject *exclude_locals = NULL;
-    PyObject *sizehint = NULL;
-    int serialize = 0;  // Default to True
+    SerializationOptions options;
     
     static char *kwlist[] = {"frame", "exclude_locals", "sizehint", "serialize", NULL};
+    int serialize = 0;
+    PyObject* sizehint_obj = NULL;
     
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OpO", kwlist, &frame, &exclude_locals, &sizehint, &serialize)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OOp", kwlist, 
+                                    &frame, &options.exclude_locals, &sizehint_obj, &serialize)) {
         return NULL;
     }
-    // py_weakref<PyFrameObject> frame_ref{(PyFrameObject*)frame};
+    
+    options.serialize = (serialize != 0);
+    
+    if (!parse_sizehint(sizehint_obj, options.sizehint)) {
+        return NULL;
+    }
+    
     py_weakref<PyFrameObject> frame_ref{PyFrame_GetBack((PyFrameObject*)frame)};
 
-    serdes::SerializationArgs ser_args;
-    handle_exclude_locals(exclude_locals, frame_ref, ser_args);
-    if(NULL != sizehint) {
-        ser_args.set_sizehint(PyLong_AsLong(sizehint));
-    }
+    serdes::SerializationArgs ser_args = options.to_ser_args();
+    handle_exclude_locals(options.exclude_locals, frame_ref, ser_args);
 
-    if(serialize) {
+    if (options.serialize) {
         return _copy_serialize_frame_object(frame_ref, ser_args);
     } else {
         return _copy_frame_object(frame_ref, ser_args);
     }
-
-    return Py_None;
 }
 
 static PyObject *copy_and_run_frame(PyObject *self, PyObject *args) {
@@ -746,40 +779,44 @@ static PyObject *run_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
 
 static PyObject *serialize_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyObject *capsule;
-    PyObject *sizehint = NULL;
+    SerializationOptions options;
+    
     static char *kwlist[] = {"frame", "sizehint", NULL};
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|O", kwlist, &capsule, &sizehint)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|O", kwlist, &capsule, &options.sizehint)) {
         return NULL;
     }
 
-    serdes::SerializationArgs ser_args;
-    if(NULL != sizehint) {
-        ser_args.set_sizehint(PyLong_AsLong(sizehint));
-    }
+    serdes::SerializationArgs ser_args = options.to_ser_args();
     return _serialize_frame_from_capsule(capsule, ser_args);
 }
 
 static PyObject *copy_frame_from_greenlet(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyObject *greenlet = NULL;
-    PyObject *exclude_locals = NULL;
-    PyObject *sizehint = NULL;
-    int serialize = 0;
+    SerializationOptions options;
+    
     static char *kwlist[] = {"greenlet", "exclude_locals", "sizehint", "serialize", NULL};
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OpO", kwlist, &greenlet, &exclude_locals, &sizehint, &serialize)) {
+    int serialize = 0;
+    PyObject* sizehint_obj = NULL;
+    
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OOp", kwlist, 
+                                    &greenlet, &options.exclude_locals, &sizehint_obj, &serialize)) {
+        return NULL;
+    }
+    
+    options.serialize = (serialize != 0);
+    
+    if (!parse_sizehint(sizehint_obj, options.sizehint)) {
         return NULL;
     }
 
-    serdes::SerializationArgs ser_args;
-    if(NULL != sizehint) {
-        ser_args.set_sizehint(PyLong_AsLong(sizehint));
-    }
+    serdes::SerializationArgs ser_args = options.to_ser_args();
 
     assert(greenlet::is_greenlet(greenlet));
     auto frame = make_weakref(greenlet::getframe(greenlet));
 
-    handle_exclude_locals(exclude_locals, frame, ser_args);
+    handle_exclude_locals(options.exclude_locals, frame, ser_args);
 
-    if(serialize) {
+    if (options.serialize) {
         return _copy_serialize_frame_object(frame, ser_args);
     }
     return _copy_frame_object(frame, ser_args);
