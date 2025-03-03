@@ -317,10 +317,9 @@ static PyObject *_copy_frame_object(py_weakref<PyFrameObject> frame, serdes::Ser
     return capsule;
 }
 
-static PyObject *_copy_current_frame(PyObject *self, PyObject *args, PyObject *exclude_locals) {
+static PyObject *_copy_current_frame(PyObject *self, PyObject *args, PyObject *exclude_locals, serdes::SerializationArgs ser_args) {
     using namespace utils;
     PyFrameObject *frame = (PyFrameObject*) PyEval_GetFrame();
-    serdes::SerializationArgs ser_args;
     handle_exclude_locals(exclude_locals, make_weakref(frame), ser_args);
     return _copy_frame_object(make_weakref(frame), ser_args);
 }
@@ -334,11 +333,10 @@ static PyObject *_copy_serialize_frame_object(py_weakref<PyFrameObject> frame, s
     return ret;
 }
 
-static PyObject *_copy_serialize_current_frame(PyObject *self, PyObject *args, PyObject *exclude_locals) {
+static PyObject *_copy_serialize_current_frame(PyObject *self, PyObject *args, PyObject *exclude_locals, serdes::SerializationArgs ser_args) {
     // here, we'll copy the frame "directly" into the serialized buffer
     using namespace utils;
     PyFrameObject *frame = (PyFrameObject*) PyEval_GetFrame();
-    serdes::SerializationArgs ser_args;
     handle_exclude_locals(exclude_locals, make_weakref(frame), ser_args);
     return _copy_serialize_frame_object(make_weakref(frame), ser_args);
 }
@@ -346,16 +344,22 @@ static PyObject *_copy_serialize_current_frame(PyObject *self, PyObject *args, P
 static PyObject *copy_current_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
     int serialize = 0;  // Default to True
     PyObject *exclude_locals = NULL;
-    static char *kwlist[] = {"serialize", "exclude_locals", NULL};
+    PyObject *sizehint = NULL;
+    static char *kwlist[] = {"serialize", "exclude_locals", "sizehint", NULL};
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|pO", kwlist, &serialize, &exclude_locals)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|pOO", kwlist, &serialize, &exclude_locals, &sizehint)) {
         return NULL;
     }
 
+    serdes::SerializationArgs ser_args;
+    if(NULL != sizehint) {
+        ser_args.set_sizehint(PyLong_AsLong(sizehint));
+    }
+
     if(serialize) {
-        return _copy_serialize_current_frame(self, args, exclude_locals);
+        return _copy_serialize_current_frame(self, args, exclude_locals, ser_args);
     } else {
-        return _copy_current_frame(self, args, exclude_locals);
+        return _copy_current_frame(self, args, exclude_locals, ser_args);
     }
 
     return Py_None;
@@ -364,11 +368,12 @@ static PyObject *copy_current_frame(PyObject *self, PyObject *args, PyObject *kw
 static PyObject *copy_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyObject *frame = NULL;
     PyObject *exclude_locals = NULL;
+    PyObject *sizehint = NULL;
     int serialize = 0;  // Default to True
     
-    static char *kwlist[] = {"frame", "exclude_locals", "serialize", NULL};
+    static char *kwlist[] = {"frame", "exclude_locals", "sizehint", "serialize", NULL};
     
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|Op", kwlist, &frame, &exclude_locals, &serialize)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OpO", kwlist, &frame, &exclude_locals, &sizehint, &serialize)) {
         return NULL;
     }
     // py_weakref<PyFrameObject> frame_ref{(PyFrameObject*)frame};
@@ -376,6 +381,9 @@ static PyObject *copy_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
 
     serdes::SerializationArgs ser_args;
     handle_exclude_locals(exclude_locals, frame_ref, ser_args);
+    if(NULL != sizehint) {
+        ser_args.set_sizehint(PyLong_AsLong(sizehint));
+    }
 
     if(serialize) {
         return _copy_serialize_frame_object(frame_ref, ser_args);
@@ -736,25 +744,35 @@ static PyObject *run_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
     return run_frame_direct(frame_ref);
 }
 
-static PyObject *serialize_frame(PyObject *self, PyObject *args) {
+static PyObject *serialize_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyObject *capsule;
-    if (!PyArg_ParseTuple(args, "O", &capsule)) {
+    PyObject *sizehint = NULL;
+    static char *kwlist[] = {"frame", "sizehint", NULL};
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|O", kwlist, &capsule, &sizehint)) {
         return NULL;
     }
 
-    return _serialize_frame_from_capsule(capsule, serdes::SerializationArgs());
+    serdes::SerializationArgs ser_args;
+    if(NULL != sizehint) {
+        ser_args.set_sizehint(PyLong_AsLong(sizehint));
+    }
+    return _serialize_frame_from_capsule(capsule, ser_args);
 }
 
 static PyObject *copy_frame_from_greenlet(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyObject *greenlet = NULL;
     PyObject *exclude_locals = NULL;
+    PyObject *sizehint = NULL;
     int serialize = 0;
-    static char *kwlist[] = {"greenlet", "exclude_locals", "serialize", NULL};
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|Op", kwlist, &greenlet, &exclude_locals, &serialize)) {
+    static char *kwlist[] = {"greenlet", "exclude_locals", "sizehint", "serialize", NULL};
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OpO", kwlist, &greenlet, &exclude_locals, &sizehint, &serialize)) {
         return NULL;
     }
 
     serdes::SerializationArgs ser_args;
+    if(NULL != sizehint) {
+        ser_args.set_sizehint(PyLong_AsLong(sizehint));
+    }
 
     assert(greenlet::is_greenlet(greenlet));
     auto frame = make_weakref(greenlet::getframe(greenlet));
@@ -782,7 +800,7 @@ static PyObject *resume_greenlet(PyObject *self, PyObject *args) {
 
 static PyMethodDef MyMethods[] = {
     {"copy_and_run_frame", copy_and_run_frame, METH_VARARGS, "Copy the current frame and run it"},
-    {"serialize_frame", serialize_frame, METH_VARARGS, "Serialize the frame"},
+    {"serialize_frame", (PyCFunction) serialize_frame, METH_VARARGS | METH_KEYWORDS, "Serialize the frame"},
     {"copy_frame", (PyCFunction) copy_frame, METH_VARARGS | METH_KEYWORDS, "Copy a given frame"},
     {"copy_current_frame", (PyCFunction) copy_current_frame, METH_VARARGS | METH_KEYWORDS, "Copy the current frame"},
     {"deserialize_frame", (PyCFunction) deserialize_frame, METH_VARARGS | METH_KEYWORDS, "Deserialize the frame"},
