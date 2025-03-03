@@ -314,9 +314,9 @@ static PyObject *_copy_frame_object(py_weakref<PyFrameObject> frame, serdes::Ser
     _PyInterpreterFrame *to_copy = frame->f_frame;
     // utils::py::print_stack_pointed_obj(to_copy);
     PyThreadState *tstate = PyThreadState_Get();
-    PyCodeObject *code = PyFrame_GetCode(*frame);
-    assert(code != NULL);
-    PyCodeObject *copy_code_obj = (PyCodeObject *)deepcopy_object((PyObject*)code);
+    pycode_strongref code = pycode_strongref::steal(PyFrame_GetCode(*frame));
+    assert(code.borrow() != NULL);
+    PyCodeObject *copy_code_obj = (PyCodeObject *)deepcopy_object((PyObject*)code.borrow());
 
     PyObject *FrameLocals = GetFrameLocalsFromFrame((PyObject*)*frame);
 
@@ -451,9 +451,9 @@ static PyObject *copy_and_run_frame(PyObject *self, PyObject *args) {
     struct _frame *frame = (struct _frame*) PyEval_GetFrame();
     PyThreadState *tstate = PyThreadState_Get();
     (void) tstate;
-    PyCodeObject *code = PyFrame_GetCode(frame);
-    assert(code != NULL);
-    PyCodeObject *copy_code_obj = (PyCodeObject *)deepcopy_object((PyObject*)code);
+    pycode_strongref code = pycode_strongref::steal(PyFrame_GetCode(frame));
+    assert(code.borrow() != NULL);
+    PyCodeObject *copy_code_obj = (PyCodeObject *)deepcopy_object((PyObject*)code.borrow());
 
     Py_ssize_t offset = py::get_instr_offset<py::Units::Bytes>(frame) + py::get_offset_for_skipping_call(py::get_current_opcode(frame));
     (void) offset;
@@ -740,9 +740,8 @@ static PyObject *_deserialize_frame(PyObject *bytes, bool inplace=false) {
 
 static PyObject *run_frame_direct(py_weakref<PyFrameObject> frame) {
     PyThreadState *tstate = PyThreadState_Get();
-    // Isn't this a strongref?
-    PyCodeObject *code = PyFrame_GetCode(*frame);
-    PyFrameObject *to_run = push_frame_for_running(tstate, frame->f_frame, code);
+    pycode_strongref code = pycode_strongref::steal(PyFrame_GetCode(*frame));
+    PyFrameObject *to_run = push_frame_for_running(tstate, frame->f_frame, code.borrow());
     if (to_run == NULL) {
         PySys_WriteStderr("<Sauerkraut>: failed to create frame on the framestack\n");
         return NULL;
