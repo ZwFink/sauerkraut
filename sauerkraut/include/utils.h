@@ -203,6 +203,13 @@ namespace utils {
            return code->co_nlocals;
        }
 
+       bool set_update(pyobject_weakref set, pyobject_weakref other) {
+            for(auto item : PyIterable(*other)) {
+                PySet_Add(*set, *item);
+            }
+            return true;
+       }
+
      sauerkraut::PyBitcodeInstruction *get_code_adaptive(py_weakref<PyCodeObject> code) {
            return (sauerkraut::PyBitcodeInstruction*) code->co_code_adaptive;
        }
