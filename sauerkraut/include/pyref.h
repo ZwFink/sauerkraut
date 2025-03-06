@@ -1,4 +1,4 @@
-#ifndef PYREF_HH_INCLUDED
+ifndef PYREF_HH_INCLUDED
 #define PYREF_HH_INCLUDED
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
@@ -37,6 +37,15 @@ class py_strongref {
         return *this;
     }
 
+    py_strongref &operator=(py_strongref &&other) {
+        if (this != &other) {
+            Py_XDECREF((PyObject*) obj);
+            obj = other.obj;
+            other.obj = NULL;
+        }
+        return *this;
+    }
+
     T *operator*() {
         return this->borrow();
     }
@@ -46,6 +55,7 @@ class py_strongref {
     }
 
     void operator=(T *new_obj) {
+        Py_XDECREF((PyObject*) obj);
         // always steals
         obj = new_obj;
     }
