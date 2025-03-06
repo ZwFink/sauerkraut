@@ -116,8 +116,6 @@ pyobject_strongref get_dead_locals_set(py_weakref<PyFrameObject> frame) {
     pycode_strongref code = pycode_strongref::steal(PyFrame_GetCode(*frame));
     auto offset = utils::py::get_instr_offset<utils::py::Units::Bytes>(frame);
     pyobject_strongref dead_vars = sauerkraut_state->get_dead_variables(code, offset);
-    PySys_WriteStdout("Dead variables: ");
-    utils::py::print_object(*dead_vars);
     return dead_vars;
 }
 
