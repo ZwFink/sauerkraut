@@ -1,4 +1,4 @@
-ifndef PYREF_HH_INCLUDED
+#ifndef PYREF_HH_INCLUDED
 #define PYREF_HH_INCLUDED
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
