@@ -339,33 +339,6 @@ struct SerializationOptions {
     }
 };
 
-static PyObject *_copy_frame_object(py_weakref<PyFrameObject> frame, const SerializationOptions& options) {
-    using namespace utils;
-    serdes::SerializationArgs args = options.to_ser_args();
-    _PyInterpreterFrame *to_copy = frame->f_frame;
-    PyThreadState *tstate = PyThreadState_Get();
-    pycode_strongref code = pycode_strongref::steal(PyFrame_GetCode(*frame));
-    assert(code.borrow() != NULL);
-    PyCodeObject *copy_code_obj = (PyCodeObject *)deepcopy_object((PyObject*)code.borrow());
-
-    PyObject *FrameLocals = GetFrameLocalsFromFrame((PyObject*)*frame);
-
-    // We want to copy these here because we want to "freeze" the locals
-    // at this point; with a shallow copy, changes to locals will propagate to
-    // the copied frame between its copy and serialization.
-    PyObject *LocalCopy = deepcopy_object(FrameLocals);
-
-    auto stack_state = utils::py::get_stack_state((PyObject*)*frame);
-    PyFrameObject *new_frame = create_copied_frame(tstate, to_copy, copy_code_obj, LocalCopy, 0, 1, 0, stack_state.size(), 1);
-
-    PyObject *capsule = frame_copy_capsule_create(new_frame, stack_state);
-    Py_DECREF(copy_code_obj);
-    Py_DECREF(LocalCopy);
-    Py_DECREF(FrameLocals);
-
-    return capsule;
-}
-
 static pyobject_strongref combine_exclusions(py_weakref<PyFrameObject> frame, PyObject* exclude_locals, bool exclude_dead_locals) {
     pyobject_strongref excluded_vars;
     
@@ -394,6 +367,7 @@ static pyobject_strongref combine_exclusions(py_weakref<PyFrameObject> frame, Py
 static bool apply_exclusions(py_weakref<PyFrameObject> frame, const SerializationOptions& options, 
                             serdes::SerializationArgs& ser_args) {
     auto excluded_vars = combine_exclusions(frame, options.exclude_locals.borrow(), options.exclude_dead_locals);
+    utils::py::print_object(excluded_vars.borrow());
     if (!excluded_vars) {
         return false;
     }
@@ -401,9 +375,47 @@ static bool apply_exclusions(py_weakref<PyFrameObject> frame, const Serializatio
     return handle_exclude_locals(excluded_vars.borrow(), frame, ser_args);
 }
 
+static PyObject *_copy_frame_object(py_weakref<PyFrameObject> frame, const SerializationOptions& options) {
+    using namespace utils;
+    serdes::SerializationArgs args = options.to_ser_args();
+    
+    if (!apply_exclusions(frame, options, args)) {
+        return NULL;
+    }
+    
+    _PyInterpreterFrame *to_copy = frame->f_frame;
+    PyThreadState *tstate = PyThreadState_Get();
+    pycode_strongref code = pycode_strongref::steal(PyFrame_GetCode(*frame));
+    assert(code.borrow() != NULL);
+    PyCodeObject *copy_code_obj = (PyCodeObject *)deepcopy_object((PyObject*)code.borrow());
+
+    PyObject *FrameLocals = GetFrameLocalsFromFrame((PyObject*)*frame);
+
+    // We want to copy these here because we want to "freeze" the locals
+    // at this point; with a shallow copy, changes to locals will propagate to
+    // the copied frame between its copy and serialization.
+    PyObject *LocalCopy = deepcopy_object(FrameLocals);
+
+    auto stack_state = utils::py::get_stack_state((PyObject*)*frame);
+    PyFrameObject *new_frame = create_copied_frame(tstate, to_copy, copy_code_obj, LocalCopy, 0, 1, 0, stack_state.size(), 1);
+
+    PyObject *capsule = frame_copy_capsule_create(new_frame, stack_state);
+    Py_DECREF(copy_code_obj);
+    Py_DECREF(LocalCopy);
+    Py_DECREF(FrameLocals);
+
+    return capsule;
+}
+
+
 static PyObject *_copy_serialize_frame_object(py_weakref<PyFrameObject> frame, const SerializationOptions& options) {
     using namespace utils;
     serdes::SerializationArgs args = options.to_ser_args();
+    
+    if (!apply_exclusions(frame, options, args)) {
+        return NULL;
+    }
+    
     auto stack_state = utils::py::get_stack_state((PyObject*)*frame);
     std::unique_ptr<frame_copy_capsule> capsule(frame_copy_capsule_create_direct(frame, stack_state));
 
@@ -414,10 +426,6 @@ static PyObject *_copy_serialize_frame_object(py_weakref<PyFrameObject> frame, c
 static PyObject *_copy_current_frame(PyObject *self, PyObject *args, const SerializationOptions& options) {
     using namespace utils;
     PyFrameObject *frame = (PyFrameObject*) PyEval_GetFrame();
-    serdes::SerializationArgs ser_args = options.to_ser_args();
-    if (!apply_exclusions(make_weakref(frame), options, ser_args)) {
-        return NULL;
-    }
     return _copy_frame_object(make_weakref(frame), options);
 }
 
@@ -425,10 +433,6 @@ static PyObject *_copy_serialize_current_frame(PyObject *self, PyObject *args, c
     // here, we'll copy the frame "directly" into the serialized buffer
     using namespace utils;
     auto frame_ref = make_weakref(PyEval_GetFrame());
-    serdes::SerializationArgs ser_args = options.to_ser_args();
-    if (!apply_exclusions(frame_ref, options, ser_args)) {
-        return NULL;
-    }
     return _copy_serialize_frame_object(frame_ref, options);
 }
 
