@@ -101,6 +101,8 @@ class LivenessAnalysis:
                     defined_vars.add(arg1)
             elif instr.name == "STORE_FAST_LOAD_FAST":
                 print(f"STORE_FAST_LOAD_FAST: {instr.arg}")
+        
+        return used_vars, defined_vars
     
     def _analyze(self):
         """Perform liveness analysis on the CFG."""
