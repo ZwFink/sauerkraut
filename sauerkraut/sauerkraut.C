@@ -367,7 +367,6 @@ static pyobject_strongref combine_exclusions(py_weakref<PyFrameObject> frame, Py
 static bool apply_exclusions(py_weakref<PyFrameObject> frame, const SerializationOptions& options, 
                             serdes::SerializationArgs& ser_args) {
     auto excluded_vars = combine_exclusions(frame, options.exclude_locals.borrow(), options.exclude_dead_locals);
-    utils::py::print_object(excluded_vars.borrow());
     if (!excluded_vars) {
         return false;
     }
