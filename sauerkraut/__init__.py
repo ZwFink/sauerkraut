@@ -9,6 +9,9 @@ from ._sauerkraut import (
     copy_current_frame
 )
 
+from . import liveness
+
+
 __all__ = [
     'copy_and_run_frame',
     'serialize_frame',
@@ -17,5 +20,6 @@ __all__ = [
     'run_frame',
     'resume_greenlet',
     'copy_frame_from_greenlet',
-    'copy_current_frame'
+    'copy_current_frame',
+    'liveness'
 ]

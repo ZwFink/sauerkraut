@@ -168,7 +168,7 @@ def exclude_locals_current_frame_fn(c, exclude_locals=None):
     global calls
     calls += 1
     g = 4
-    frame_bytes = skt.copy_current_frame(serialize=True, exclude_locals=exclude_locals)
+    frame_bytes = skt.copy_current_frame(serialize=True, exclude_locals=exclude_locals, exclude_dead_locals=False)
     if calls == 1:
         g = 5
         calls += 1
