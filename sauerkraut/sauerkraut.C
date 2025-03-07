@@ -467,6 +467,15 @@ static bool parse_serialization_options(PyObject* args, PyObject* kwargs, Serial
     return parse_sizehint(sizehint_obj, options.sizehint);
 }
 
+static PyObject *run_and_cleanup_frame(PyFrameObject *frame) {
+    PyObject *res = PyEval_EvalFrame(frame);
+    PyCodeObject *code = PyFrame_GetCode(frame);
+
+    Py_SET_REFCNT(code, 0);
+    Py_SET_REFCNT(frame, 0);
+    return res;
+}
+
 static PyObject *copy_current_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
     SerializationOptions options;
     if (!parse_serialization_options(args, kwargs, options)) {
@@ -529,7 +538,7 @@ static PyObject *copy_and_run_frame(PyObject *self, PyObject *args) {
     // PyFrameObject *new_frame = create_copied_frame(tstate, to_copy, copy_code_obj, LocalCopy, offset, 1, 0, 1, 1);
     PyFrameObject *new_frame = NULL;
 
-    PyObject *res = PyEval_EvalFrame(new_frame);
+    PyObject *res = run_and_cleanup_frame(new_frame);
     Py_DECREF(copy_code_obj);
     Py_DECREF(LocalCopy);
     Py_DECREF(FrameLocals);
@@ -711,16 +720,16 @@ static void init_pyinterpreterframe(sauerkraut::PyInterpreterFrame *interp_frame
     interp_frame->f_locals = NULL;
     interp_frame->previous = NULL;
 
-    interp_frame->f_executable.bits = (uintptr_t)Py_NewRef(code.borrow());
+    interp_frame->f_executable.bits = (uintptr_t)code.borrow();
     interp_frame->f_funcobj = Py_NewRef(frame_obj.f_funcobj.borrow());
 
     if(NULL != *frame_obj.f_globals) {
-        interp_frame->f_globals = Py_NewRef(frame_obj.f_globals.borrow());
+        interp_frame->f_globals = frame_obj.f_globals.borrow();
     } else {
         interp_frame->f_globals = PyEval_GetFrameGlobals();
     }
     if(NULL != *frame_obj.f_builtins) {
-        interp_frame->f_builtins = Py_NewRef(frame_obj.f_builtins.borrow());
+        interp_frame->f_builtins = frame_obj.f_builtins.borrow();
     } else {
         interp_frame->f_builtins = PyEval_GetFrameBuiltins();
     }
@@ -810,7 +819,7 @@ static PyObject *run_frame_direct(py_weakref<PyFrameObject> frame) {
         PySys_WriteStderr("<Sauerkraut>: failed to create frame on the framestack\n");
         return NULL;
     }
-    PyObject *res = PyEval_EvalFrame(to_run);
+    PyObject *res = run_and_cleanup_frame(to_run);
     return res;
 
 }
@@ -834,8 +843,8 @@ static PyObject *deserialize_frame(PyObject *self, PyObject *args, PyObject *kwa
     }
 
     if(run) {
-        ret_obj = PyEval_EvalFrame((PyFrameObject*)deser_result);
-    } 
+        ret_obj = run_and_cleanup_frame((PyFrameObject*)deser_result);
+    }
 
     return ret_obj;
 }
