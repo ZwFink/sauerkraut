@@ -231,6 +231,7 @@ liveness_cache = {}
 
 def get_dead_variables_at_offset(code: types.CodeType, offset: int) -> Set[str]:
     """Get the set of dead variables at a given bytecode offset."""
-    if hash(code) not in liveness_cache:
-        liveness_cache[hash(code)] = LivenessAnalysis(code)
-    return liveness_cache[hash(code)].get_dead_variables_at_offset(offset)
+    h = hash(code.co_name)
+    if h not in liveness_cache:
+        liveness_cache[h] = LivenessAnalysis(code)
+    return liveness_cache[h].get_dead_variables_at_offset(offset)
