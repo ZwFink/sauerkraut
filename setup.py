@@ -1,4 +1,4 @@
-from setuptools import setup, Extension
+from setuptools import setup, Extension, find_packages
 from setuptools.command.build_ext import build_ext
 import os
 import subprocess
@@ -87,14 +87,21 @@ class CMakeBuild(build_ext):
             self.build_extension(ext)
 
     def build_extension(self, ext):
-        extdir = os.path.abspath(os.path.dirname(self.get_ext_fullpath(ext.name)))
+        # Get the build directory for temporary files
+        build_temp = os.path.abspath(self.build_temp)
+        
+        # Get the installation directory (site-packages)
+        # This is where we want our .so files to end up
+        install_dir = os.path.dirname(os.path.abspath(
+            self.get_ext_fullpath(ext.name)
+        ))
         
         if not hasattr(self, '_flatbuffers_dir'):
             self._flatbuffers_dir = self.build_flatbuffers()
         
         cmake_args = [
-            f'-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={self.build_temp}',
-            f'-DPYTHON_EXECUTABLE={sys.executable}'
+            f'-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={build_temp}',
+            f'-DPYTHON_EXECUTABLE={sys.executable}',
         ]
         
         if self._flatbuffers_dir:
@@ -102,23 +109,29 @@ class CMakeBuild(build_ext):
                 f'-DFLATBUFFERS_ROOT={self._flatbuffers_dir}',
                 f'-DFLATC_EXECUTABLE={os.path.join(self._flatbuffers_dir, "bin", "flatc")}'
             ])
+            
+        cfg = 'Debug' if self.debug else 'Release'
+        build_args = ['--config', cfg]
+
+        # Unix/Linux only configuration
+        cmake_args += [f'-DCMAKE_BUILD_TYPE={cfg}']
+        build_args += ['--', '-j2']
         
-        build_args = []
+        if not os.path.exists(build_temp):
+            os.makedirs(build_temp)
         
-        if not os.path.exists(self.build_temp):
-            os.makedirs(self.build_temp)
+        subprocess.check_call(['cmake', ext.sourcedir] + cmake_args, cwd=build_temp)
+        subprocess.check_call(['cmake', '--build', '.'] + build_args, cwd=build_temp)
         
-        cmake_cmd = ['cmake', ext.sourcedir] + cmake_args
-        print(cmake_cmd, flush=True, file=sys.stderr)
-        subprocess.check_call(['cmake', ext.sourcedir] + cmake_args, cwd=self.build_temp)
-        subprocess.check_call(['cmake', '--build', '.'] + build_args, cwd=self.build_temp)
+        built_libs = ['_sauerkraut.so', 'greenlet_compat.so', 'serdes.so']
+        package_dir = os.path.join(install_dir, 'sauerkraut')
+        os.makedirs(package_dir, exist_ok=True)
         
-        # Copy the built library to the correct location
-        built_lib = self.get_outputs()[0]
-        target_dir = os.path.dirname(self.get_ext_fullpath(ext.name))
-        if not os.path.exists(target_dir):
-            os.makedirs(target_dir)
-        shutil.copy(built_lib, self.get_ext_fullpath(ext.name))
+        for lib in built_libs:
+            src = os.path.join(build_temp, lib)
+            if os.path.exists(src):
+                dst = os.path.join(package_dir, lib)
+                self.copy_file(src, dst)
 
     def _get_python_library(self):
         """Helper function to find the Python library path."""
@@ -180,6 +193,7 @@ setup(
     description='Serialization for Python\'s Control State',
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
+    packages=find_packages(),
     ext_modules=[CMakeExtension('_sauerkraut')],
     cmdclass={
         'build_ext': CMakeBuild,
