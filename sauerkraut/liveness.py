@@ -5,8 +5,14 @@ import types
 import bytecode as bc
 from bytecode import Instr, BasicBlock, ControlFlowGraph, Bytecode
 
-_USE_INSTRS = ("LOAD_NAME", "LOAD_FAST")
+_USE_INSTRS = ("LOAD_NAME", "LOAD_FAST",
+               "LOAD_FAST_CHECK",
+               "LOAD_FAST_AND_CLEAR"
+               )
+_SUPER_USE_INSTRS = ("LOAD_FAST_LOAD_FAST")
+_SUPER_DEF_INSTRS = ("STORE_FAST_STORE_FAST")
 _DEF_INSTRS = ("STORE_NAME", "STORE_FAST")
+
 
 class LivenessAnalysis:
     def __init__(self, code: Union[types.CodeType, Bytecode, ControlFlowGraph]):
@@ -54,6 +60,12 @@ class LivenessAnalysis:
     
     def _is_def(self, instr: Instr) -> bool:
         return instr.name in _DEF_INSTRS
+
+    def _is_super_use(self, instr: Instr) -> bool:
+        return instr.name in _SUPER_USE_INSTRS
+    
+    def _is_super_def(self, instr: Instr) -> bool:
+        return instr.name in _SUPER_DEF_INSTRS
     
     def _get_uses_and_defs(self, block: BasicBlock) -> Tuple[Set[str], Set[str]]:
         """Get the variables used and defined in a basic block.
@@ -74,10 +86,21 @@ class LivenessAnalysis:
             elif self._is_def(instr):
                 if isinstance(instr.arg, str):
                     defined_vars.add(instr.arg)
-        
-        # Variables that are used before being defined in this block
-        # are considered used by this block
-        return used_vars - defined_vars, defined_vars
+            # special 'super-instruction'
+            elif self._is_super_use(instr):
+                arg0, arg1 = instr.arg
+                if isinstance(arg0, str):
+                    used_vars.add(arg0)
+                if isinstance(arg1, str):
+                    used_vars.add(arg1)
+            elif self._is_super_def(instr):
+                arg0, arg1 = instr.arg
+                if isinstance(arg0, str):
+                    defined_vars.add(arg0)
+                if isinstance(arg1, str):
+                    defined_vars.add(arg1)
+            elif instr.name == "STORE_FAST_LOAD_FAST":
+                print(f"STORE_FAST_LOAD_FAST: {instr.arg}")
     
     def _analyze(self):
         """Perform liveness analysis on the CFG."""
@@ -166,12 +189,25 @@ class LivenessAnalysis:
                         if isinstance(instr.arg, str):
                             live_vars.discard(instr.arg)
                             self._localvars.add(instr.arg)
-                    
-                    if self._is_use(instr):
+                    elif self._is_use(instr):
                         if isinstance(instr.arg, str):
                             live_vars.add(instr.arg)
                             self._localvars.add(instr.arg)
-    
+                    elif self._is_super_use(instr):
+                        arg0, arg1 = instr.arg
+                        if isinstance(arg0, str):
+                            live_vars.add(arg0)
+                            self._localvars.add(arg0)
+                        if isinstance(arg1, str):
+                            live_vars.add(arg1)
+                            self._localvars.add(arg1)
+                    elif self._is_super_def(instr):
+                        arg0, arg1 = instr.arg
+                        if isinstance(arg0, str):
+                            live_vars.add(arg0)
+                            self._localvars.add(arg0)
+                        if isinstance(arg1, str):
+                            live_vars.add(arg1)
     def get_live_variables_at_offset(self, offset: int) -> Set[str]:
         """Get the set of live variables at a given bytecode offset."""
         if self._is_valid_offset(offset):
