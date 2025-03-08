@@ -498,6 +498,9 @@ namespace serdes {
             if(obj->f_funcobj()) {
                 deser.f_funcobj = po_serializer.deserialize(obj->f_funcobj());
             }
+            if(obj->f_globals()) {
+                deser.f_globals = po_serializer.deserialize_dill(obj->f_globals());
+            }
             deser.f_builtins = po_serializer.deserialize(obj->f_builtins());
             deser.f_locals = po_serializer.deserialize(obj->f_locals());
 
