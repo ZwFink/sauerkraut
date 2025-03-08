@@ -12,21 +12,27 @@
 #include "pyref.h"
 #include "py_structs.h"
 #include "utils.h"
+#include <optional>
 
 namespace serdes {
     constexpr int SERIALIZATION_SIZEHINT_DEFAULT = 1024;
     class SerializationArgs {
         public:
         std::optional<utils::py::LocalExclusionBitmask> exclude_locals;
+        bool exclude_invariants = false;
         size_t sizehint;
 
-        SerializationArgs(std::optional<utils::py::LocalExclusionBitmask> exclude_locals, size_t sizehint) :
-            exclude_locals(exclude_locals), sizehint(sizehint) {}
-        SerializationArgs() : exclude_locals(std::nullopt), sizehint(SERIALIZATION_SIZEHINT_DEFAULT) {}
-        SerializationArgs(size_t sizehint) : exclude_locals(std::nullopt), sizehint(sizehint) {}
+        SerializationArgs(std::optional<utils::py::LocalExclusionBitmask> exclude_locals, bool exclude_invariants, size_t sizehint) :
+            exclude_locals(exclude_locals), exclude_invariants(exclude_invariants), sizehint(sizehint) {}
+        SerializationArgs() : exclude_locals(std::nullopt), exclude_invariants(false), sizehint(SERIALIZATION_SIZEHINT_DEFAULT) {}
+        SerializationArgs(size_t sizehint) : exclude_locals(std::nullopt), exclude_invariants(false), sizehint(sizehint) {}
 
         void set_exclude_locals(std::optional<utils::py::LocalExclusionBitmask> exclude_locals) {
             this->exclude_locals = exclude_locals;
+        }
+
+        void set_exclude_invariants(bool exclude_invariants) {
+            this->exclude_invariants = exclude_invariants;
         }
 
         void set_sizehint(size_t sizehint) {
@@ -194,6 +200,17 @@ namespace serdes {
         pyobject_strongref co_linetable;
 
         std::vector<unsigned char> co_code_adaptive;
+
+        bool invariants_included() {
+            if(co_consts.borrow()) {
+                return true;
+            }
+            if(co_names.borrow()) {
+                return true;
+            }
+            return false;
+        }
+ 
     };
 
     template <typename PyCodeObjectSerializer>
@@ -216,34 +233,49 @@ namespace serdes {
 
         template<typename Builder>
         offsets::PyCodeObjectOffset serialize(Builder &builder, PyCodeObject *obj, serdes::SerializationArgs& ser_args) {
-            auto co_consts_ser = (NULL != obj->co_consts) ? 
-                std::optional{po_serializer.serialize(builder, obj->co_consts)} : std::nullopt;
-
-            auto co_names_ser = (NULL != obj->co_names) ?
-                std::optional{po_serializer.serialize(builder, obj->co_names)} : std::nullopt;
-
-            auto co_exceptiontable_ser = (NULL != obj->co_exceptiontable) ?
-                std::optional{po_serializer.serialize(builder, obj->co_exceptiontable)} : std::nullopt;
-
-            auto co_localsplusnames_ser = (NULL != obj->co_localsplusnames) ?
-                std::optional{po_serializer.serialize(builder, obj->co_localsplusnames)} : std::nullopt;
-
-            auto co_localspluskinds_ser = (NULL != obj->co_localspluskinds) ?
-                std::optional{po_serializer.serialize(builder, obj->co_localspluskinds)} : std::nullopt;
-
-            auto co_filename_ser = (NULL != obj->co_filename) ?
-                std::optional{po_serializer.serialize(builder, obj->co_filename)} : std::nullopt;
-
+            // Always serialize co_name as it's used as a key for lookup
             auto co_name_ser = (NULL != obj->co_name) ?
                 std::optional{po_serializer.serialize(builder, obj->co_name)} : std::nullopt;
+            
+            // Only serialize other fields if we're not excluding invariants
+            std::optional<offsets::PyObjectOffset> co_consts_ser = std::nullopt;
+            std::optional<offsets::PyObjectOffset> co_names_ser = std::nullopt;
+            std::optional<offsets::PyObjectOffset> co_exceptiontable_ser = std::nullopt;
+            std::optional<offsets::PyObjectOffset> co_localsplusnames_ser = std::nullopt;
+            std::optional<offsets::PyObjectOffset> co_localspluskinds_ser = std::nullopt;
+            std::optional<offsets::PyObjectOffset> co_filename_ser = std::nullopt;
+            std::optional<offsets::PyObjectOffset> co_qualname_ser = std::nullopt;
+            std::optional<offsets::PyObjectOffset> co_linetable_ser = std::nullopt;
+            std::optional<flatbuffers::Offset<flatbuffers::Vector<uint8_t>>> co_code_adaptive_ser = std::nullopt;
+            
+            if (!ser_args.exclude_invariants) {
+                co_consts_ser = (NULL != obj->co_consts) ? 
+                    std::optional{po_serializer.serialize(builder, obj->co_consts)} : std::nullopt;
 
-            auto co_qualname_ser = (NULL != obj->co_qualname) ?
-                std::optional{po_serializer.serialize(builder, obj->co_qualname)} : std::nullopt;
+                co_names_ser = (NULL != obj->co_names) ?
+                    std::optional{po_serializer.serialize(builder, obj->co_names)} : std::nullopt;
 
-            auto co_linetable_ser = (NULL != obj->co_linetable) ?
-                std::optional{po_serializer.serialize(builder, obj->co_linetable)} : std::nullopt;
+                co_exceptiontable_ser = (NULL != obj->co_exceptiontable) ?
+                    std::optional{po_serializer.serialize(builder, obj->co_exceptiontable)} : std::nullopt;
 
-            auto co_code_adaptive_ser = serialize_bitcode(builder, obj);
+                co_localsplusnames_ser = (NULL != obj->co_localsplusnames) ?
+                    std::optional{po_serializer.serialize(builder, obj->co_localsplusnames)} : std::nullopt;
+
+                co_localspluskinds_ser = (NULL != obj->co_localspluskinds) ?
+                    std::optional{po_serializer.serialize(builder, obj->co_localspluskinds)} : std::nullopt;
+
+                co_filename_ser = (NULL != obj->co_filename) ?
+                    std::optional{po_serializer.serialize(builder, obj->co_filename)} : std::nullopt;
+
+                co_qualname_ser = (NULL != obj->co_qualname) ?
+                    std::optional{po_serializer.serialize(builder, obj->co_qualname)} : std::nullopt;
+
+                co_linetable_ser = (NULL != obj->co_linetable) ?
+                    std::optional{po_serializer.serialize(builder, obj->co_linetable)} : std::nullopt;
+                
+                // Only serialize bytecode if we're not excluding invariants
+                co_code_adaptive_ser = serialize_bitcode(builder, obj);
+            }
 
             pyframe_buffer::PyCodeObjectBuilder code_builder(builder);
 
@@ -257,20 +289,23 @@ namespace serdes {
                 code_builder.add_co_exceptiontable(co_exceptiontable_ser.value());
             }
 
-            code_builder.add_co_flags(obj->co_flags);
+            // Only add flags and other numeric properties if not excluding invariants
+            if (!ser_args.exclude_invariants) {
+                code_builder.add_co_flags(obj->co_flags);
 
-            code_builder.add_co_argcount(obj->co_argcount);
-            code_builder.add_co_posonlyargcount(obj->co_posonlyargcount);
-            code_builder.add_co_kwonlyargcount(obj->co_kwonlyargcount);
-            code_builder.add_co_stacksize(obj->co_stacksize);
-            code_builder.add_co_firstlineno(obj->co_firstlineno);
+                code_builder.add_co_argcount(obj->co_argcount);
+                code_builder.add_co_posonlyargcount(obj->co_posonlyargcount);
+                code_builder.add_co_kwonlyargcount(obj->co_kwonlyargcount);
+                code_builder.add_co_stacksize(obj->co_stacksize);
+                code_builder.add_co_firstlineno(obj->co_firstlineno);
 
-            code_builder.add_co_nlocalsplus(obj->co_nlocalsplus);
-            code_builder.add_co_framesize(obj->co_framesize);
-            code_builder.add_co_nlocals(obj->co_nlocals);
-            code_builder.add_co_ncellvars(obj->co_ncellvars);
-            code_builder.add_co_nfreevars(obj->co_nfreevars);
-            code_builder.add_co_version(obj->co_version);
+                code_builder.add_co_nlocalsplus(obj->co_nlocalsplus);
+                code_builder.add_co_framesize(obj->co_framesize);
+                code_builder.add_co_nlocals(obj->co_nlocals);
+                code_builder.add_co_ncellvars(obj->co_ncellvars);
+                code_builder.add_co_nfreevars(obj->co_nfreevars);
+                code_builder.add_co_version(obj->co_version);
+            }
 
             if (co_localsplusnames_ser) {
                 code_builder.add_co_localsplusnames(co_localsplusnames_ser.value());
@@ -282,16 +317,23 @@ namespace serdes {
             if (co_filename_ser) {
                 code_builder.add_co_filename(co_filename_ser.value());
             }
+            
+            // Always add co_name as it's our lookup key
             if (co_name_ser) {
                 code_builder.add_co_name(co_name_ser.value());
             }
+            
             if (co_qualname_ser) {
                 code_builder.add_co_qualname(co_qualname_ser.value());
             }
             if (co_linetable_ser) {
                 code_builder.add_co_linetable(co_linetable_ser.value());
             }
-            code_builder.add_co_code_adaptive(co_code_adaptive_ser);
+            
+            // Only add bytecode if we're not excluding invariants
+            if (co_code_adaptive_ser) {
+                code_builder.add_co_code_adaptive(co_code_adaptive_ser.value());
+            }
 
             return code_builder.Finish();
         }
@@ -326,11 +368,14 @@ namespace serdes {
             deser.co_linetable = po_serializer.deserialize(obj->co_linetable());
 
             auto bitcode = obj->co_code_adaptive();
-            deser.co_code_adaptive = std::vector<unsigned char>(bitcode->begin(), bitcode->end());
+            if(bitcode) {
+                deser.co_code_adaptive = std::vector<unsigned char>(bitcode->begin(), bitcode->end());
+            }
 
             return deser;
         }
-    };
+
+   };
 
     template<typename PyCodeObjectSerializer>
     PyVarObjectHeadSerdes(PyCodeObjectSerializer&) -> PyVarObjectHeadSerdes<PyCodeObjectSerializer>;
@@ -338,7 +383,7 @@ namespace serdes {
     class DeserializedPyInterpreterFrame {
       public:
         DeserializedCodeObject f_executable;
-        pyobject_strongref f_funcobj;
+        std::optional<pyobject_strongref> f_funcobj;
         pyobject_strongref f_globals;
         pyobject_strongref f_builtins;
         pyobject_strongref f_locals;
@@ -408,9 +453,15 @@ namespace serdes {
 
         template<typename Builder>
         offsets::PyInterpreterFrameOffset serialize(Builder &builder, sauerkraut::PyInterpreterFrame &obj, int stack_depth, serdes::SerializationArgs& ser_args) {
-            auto f_executable_ser = code_serializer.serialize(builder, (PyCodeObject*)obj.f_executable.bits, ser_args);
-            auto f_func_obj_ser = po_serializer.serialize(builder, obj.f_funcobj);
-            auto f_globals_ser = po_serializer.serialize_dill(builder, obj.f_globals);
+            offsets::PyCodeObjectOffset f_executable_ser;
+            offsets::PyObjectOffset f_func_obj_ser;
+            offsets::PyObjectOffset f_globals_ser;
+
+            f_executable_ser = code_serializer.serialize(builder, (PyCodeObject*)obj.f_executable.bits, ser_args);
+            if(!ser_args.exclude_invariants) {
+                f_func_obj_ser = po_serializer.serialize(builder, obj.f_funcobj);
+                f_globals_ser = po_serializer.serialize_dill(builder, obj.f_globals);
+            }
 
             auto f_locals_ser = (NULL != obj.f_locals) ? 
                 std::optional{po_serializer.serialize(builder, obj.f_locals)} : std::nullopt;
@@ -419,13 +470,16 @@ namespace serdes {
             auto stack_ser = serialize_stack(builder, obj, stack_depth);
 
             pyframe_buffer::PyInterpreterFrameBuilder frame_builder(builder);
-            frame_builder.add_f_executable(f_executable_ser);
-            frame_builder.add_f_globals(f_globals_ser);
+
             if(f_locals_ser) {
                 frame_builder.add_f_locals(f_locals_ser.value());
             }
+            if(!ser_args.exclude_invariants) {
+                frame_builder.add_f_funcobj(f_func_obj_ser);
+                frame_builder.add_f_globals(f_globals_ser);
+            }
 
-            frame_builder.add_f_funcobj(f_func_obj_ser);
+            frame_builder.add_f_executable(f_executable_ser);
             frame_builder.add_instr_offset(utils::py::get_instr_offset<utils::py::Units::Bytes>(obj.frame_obj));
             frame_builder.add_return_offset(obj.return_offset);
             frame_builder.add_owner(obj.owner);
@@ -438,9 +492,12 @@ namespace serdes {
 
         DeserializedPyInterpreterFrame deserialize(const pyframe_buffer::PyInterpreterFrame *obj) {
             DeserializedPyInterpreterFrame deser;
-            deser.f_executable = code_serializer.deserialize(obj->f_executable());
-            deser.f_funcobj = po_serializer.deserialize(obj->f_funcobj());
-            deser.f_globals = po_serializer.deserialize_dill(obj->f_globals());
+            if(obj->f_executable()) {
+                deser.f_executable = code_serializer.deserialize(obj->f_executable());
+            }
+            if(obj->f_funcobj()) {
+                deser.f_funcobj = po_serializer.deserialize(obj->f_funcobj());
+            }
             deser.f_builtins = po_serializer.deserialize(obj->f_builtins());
             deser.f_locals = po_serializer.deserialize(obj->f_locals());
 

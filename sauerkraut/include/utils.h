@@ -57,6 +57,8 @@ static PyObject **
 namespace utils {
     namespace py
     {
+
+        void print_object(PyObject *obj);
         class PyIterator
         {
         public:
@@ -240,6 +242,11 @@ namespace utils {
         char get_current_opcode(py_weakref<struct _frame> frame) {
             return frame->f_frame->instr_ptr->opcode;
         }
+        char get_current_opcode(pycode_weakref code, int offset) {
+            pyobject_strongref code_bytes = pyobject_strongref::steal(PyCode_GetCode(code.borrow()));
+            char *bitcode = PyBytes_AsString(code_bytes.borrow());
+            return ((sauerkraut::PyBitcodeInstruction*) (bitcode + offset))->opcode;
+        }
 
         template <Units Unit>
         Py_ssize_t get_instr_offset(py_weakref<sauerkraut::PyInterpreterFrame> iframe) {
@@ -355,7 +362,7 @@ namespace utils {
         Py_ssize_t skip_current_call_instruction(py_weakref<PyFrameObject> frame) {
             pycode_strongref code = pycode_strongref::steal(PyFrame_GetCode(*frame));
             Py_ssize_t base_offset = get_instr_offset<Units::Bytes>(*frame);
-            Py_ssize_t offset = get_instr_offset<Units::Bytes>(*frame) + get_offset_for_skipping_call(get_current_opcode(frame));
+            Py_ssize_t offset = get_instr_offset<Units::Bytes>(*frame) + get_offset_for_skipping_call(get_current_opcode(code, base_offset));
             frame->f_frame->instr_ptr = (_CodeUnit*) (code->co_code_adaptive + offset);
             return offset;
         }

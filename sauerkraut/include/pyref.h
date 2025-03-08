@@ -120,4 +120,9 @@ py_weakref<T> make_weakref(T* ptr) {
     return py_weakref<T>(ptr);
 }
 
+template<typename T>
+py_strongref<T> make_strongref(T* ptr) {
+    return py_strongref<T>(ptr);
+}
+
 #endif
