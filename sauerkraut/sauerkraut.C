@@ -551,19 +551,21 @@ static PyObject *copy_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyObject *frame = NULL;
     SerializationOptions options;
     
-    static char *kwlist[] = {"frame", "exclude_locals", "sizehint", "serialize", "exclude_dead_locals", NULL};
+    static char *kwlist[] = {"frame", "exclude_locals", "sizehint", 
+                             "serialize", "exclude_dead_locals", "exclude_invariants", NULL};
     int serialize = 0;
     PyObject* sizehint_obj = NULL;
     int exclude_dead_locals = 1;
+    int exclude_invariants = 0;
     
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OOpp", kwlist, 
-                                    &frame, &options.exclude_locals, &sizehint_obj, &serialize, &exclude_dead_locals)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OOppp", kwlist, 
+                                    &frame, &options.exclude_locals, &sizehint_obj, &serialize, &exclude_dead_locals, &exclude_invariants)) {
         return NULL;
     }
     
     options.serialize = (serialize != 0);
     options.exclude_dead_locals = (exclude_dead_locals != 0);
-    
+    options.exclude_invariants = (exclude_invariants != 0);
     if (!parse_sizehint(sizehint_obj, options.sizehint)) {
         return NULL;
     }
