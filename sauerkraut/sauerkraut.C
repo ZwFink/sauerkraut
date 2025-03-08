@@ -11,7 +11,14 @@
 #include "serdes.h"
 #include "pyref.h" 
 #include "py_structs.h"
+#include <unordered_map>
+#include <tuple>
+#include <string>
+#include <optional>
 
+// The order of the tuple is: funcobj, code, globals
+using PyCodeInvariants = std::tuple<pyobject_strongref, pyobject_strongref, pyobject_strongref>;
+using PyCodeInvariantCache = std::unordered_map<std::string, PyCodeInvariants>;
 
 class sauerkraut_modulestate {
     public:
@@ -25,7 +32,7 @@ class sauerkraut_modulestate {
         pyobject_strongref dill_loads;
         pyobject_strongref liveness_module;
         pyobject_strongref get_dead_variables_at_offset;
-        
+        PyCodeInvariantCache code_invariant_cache;
         sauerkraut_modulestate() {
             deepcopy_module = PyImport_ImportModule("copy");
             deepcopy = PyObject_GetAttrString(*deepcopy_module, "deepcopy");
@@ -45,6 +52,47 @@ class sauerkraut_modulestate {
             pyobject_strongref result = pyobject_strongref::steal(PyObject_CallObject(get_dead_variables_at_offset.borrow(), args.borrow()));
             return result;
         }
+
+        void cache_code_invariants(py_weakref<PyFrameObject> frame) {
+            pyobject_strongref code = pyobject_strongref::steal((PyObject*)PyFrame_GetCode(*frame));
+            PyObject *name = ((PyCodeObject*)code.borrow())->co_name;
+            std::string name_str = std::string(PyUnicode_AsUTF8(name));
+            auto cached_invariants = code_invariant_cache.find(name_str);
+
+            // it's already in the cache, so we can return
+            if(cached_invariants != code_invariant_cache.end()) {
+                return;
+            }
+
+            // it's not in the cache, so we need to compute the invariants
+            auto funcobj = make_strongref(frame->f_frame->f_funcobj);
+            code_invariant_cache[name_str] = std::make_tuple(funcobj, code, frame->f_frame->f_globals);
+        }
+
+        std::optional<PyCodeInvariants> get_code_invariants(py_weakref<PyFrameObject> frame) {
+            pycode_strongref code = pycode_strongref::steal(PyFrame_GetCode(*frame));
+            PyObject *name = code->co_name;
+            std::string name_str = std::string(PyUnicode_AsUTF8(name));
+            auto cached_invariants = code_invariant_cache.find(name_str);
+            if(cached_invariants != code_invariant_cache.end()) {
+                return cached_invariants->second;
+            }
+            return std::nullopt;
+        }
+        std::optional<PyCodeInvariants> get_code_invariants(serdes::DeserializedPyInterpreterFrame &frame) {
+            pyobject_weakref name = frame.f_executable.co_name.borrow();
+            std::string name_str = std::string(PyUnicode_AsUTF8(*name));
+            auto cached_invariants = code_invariant_cache.find(name_str);
+            if(cached_invariants != code_invariant_cache.end()) {
+                return cached_invariants->second;
+            }
+            return std::nullopt;
+        }
+
+        std::optional<PyCodeInvariants> get_code_invariants(serdes::DeserializedPyFrame &frame) {
+            return get_code_invariants(frame.f_frame);
+        }
+
 };
 
 class dumps_functor {
@@ -330,11 +378,13 @@ struct SerializationOptions {
     pyobject_strongref exclude_locals;
     Py_ssize_t sizehint = 0;
     bool exclude_dead_locals = true;
+    bool exclude_invariants = false;
     serdes::SerializationArgs to_ser_args() const {
         serdes::SerializationArgs args;
         if (sizehint > 0) {
             args.set_sizehint(sizehint);
         }
+        args.set_exclude_invariants(exclude_invariants);
         return args;
     }
 };
@@ -414,7 +464,10 @@ static PyObject *_copy_serialize_frame_object(py_weakref<PyFrameObject> frame, c
     if (!apply_exclusions(frame, options, args)) {
         return NULL;
     }
-    
+
+    if(options.exclude_invariants) {
+        sauerkraut_state->cache_code_invariants(frame);
+    }     
     auto stack_state = utils::py::get_stack_state((PyObject*)*frame);
     std::unique_ptr<frame_copy_capsule> capsule(frame_copy_capsule_create_direct(frame, stack_state));
 
@@ -449,21 +502,26 @@ static bool parse_sizehint(PyObject* sizehint_obj, Py_ssize_t& sizehint) {
 }
 
 static bool parse_serialization_options(PyObject* args, PyObject* kwargs, SerializationOptions& options) {
-    static char* kwlist[] = {"serialize", "exclude_locals", "sizehint", "exclude_dead_locals", NULL};
+    static char* kwlist[] = {"serialize", "exclude_locals", 
+                             "exclude_invariants", "sizehint", 
+                             "exclude_dead_locals", NULL};
     int serialize = 0;
     PyObject* sizehint_obj = NULL;
     PyObject* exclude_locals = NULL;
     int exclude_dead_locals = 1;
+    int exclude_invariants = 0;
     
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|pOOp", kwlist, 
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|pOpOp", kwlist, 
                                     &serialize, &exclude_locals, 
-                                    &sizehint_obj, &exclude_dead_locals)) {
+                                    &exclude_invariants, &sizehint_obj, 
+                                    &exclude_dead_locals)) {
         return false;
     }
     
     options.serialize = (serialize != 0);
     options.exclude_dead_locals = (exclude_dead_locals != 0);
     options.exclude_locals = pyobject_strongref(exclude_locals);
+    options.exclude_invariants = (exclude_invariants != 0);
     return parse_sizehint(sizehint_obj, options.sizehint);
 }
 
@@ -721,13 +779,24 @@ static void init_pyinterpreterframe(sauerkraut::PyInterpreterFrame *interp_frame
     interp_frame->previous = NULL;
 
     interp_frame->f_executable.bits = (uintptr_t)code.borrow();
-    interp_frame->f_funcobj = Py_NewRef(frame_obj.f_funcobj.borrow());
-
-    if(NULL != *frame_obj.f_globals) {
-        interp_frame->f_globals = frame_obj.f_globals.borrow();
+    if(frame_obj.f_executable.invariants_included()) {
+        interp_frame->f_funcobj = Py_NewRef(frame_obj.f_funcobj.value().borrow());
+        if(NULL != frame_obj.f_globals) {
+            interp_frame->f_globals = frame_obj.f_globals.borrow();
+        } else {
+            interp_frame->f_globals = PyEval_GetFrameGlobals();
+        }
     } else {
-        interp_frame->f_globals = PyEval_GetFrameGlobals();
+        auto invariants = sauerkraut_state->get_code_invariants(frame_obj);
+        if(invariants) {
+            interp_frame->f_funcobj = Py_NewRef(std::get<0>(invariants.value()).borrow());
+            interp_frame->f_globals = Py_NewRef(std::get<2>(invariants.value()).borrow());
+        } else {
+            interp_frame->f_funcobj = NULL;
+            interp_frame->f_globals = NULL;
+        }
     }
+
     if(NULL != *frame_obj.f_builtins) {
         interp_frame->f_builtins = frame_obj.f_builtins.borrow();
     } else {
@@ -803,8 +872,18 @@ static PyObject *_deserialize_frame(PyObject *bytes, bool inplace=false) {
 
     // FRAME_OWNED_BY_THREAD
     assert(deserframe.f_frame.owner == 0);
+    PyCodeObject *code = NULL;
+    if(deserframe.f_frame.f_executable.invariants_included()) {
+        code = create_pycode_object(deserframe.f_frame.f_executable);
+    } else {
+        auto cached_invariants = sauerkraut_state->get_code_invariants(deserframe);
+        if(cached_invariants) {
+            code = (PyCodeObject*) Py_NewRef(std::get<1>(cached_invariants.value()).borrow());
+        } else {
+            code = NULL;
+        }
+    }
 
-    PyCodeObject *code = create_pycode_object(deserframe.f_frame.f_executable);
     PyFrameObject *frame = create_pyframe_object(deserframe, code);
     create_pyinterpreterframe_object(deserframe.f_frame, frame, code, inplace);
 
@@ -884,20 +963,21 @@ static PyObject *serialize_frame(PyObject *self, PyObject *args, PyObject *kwarg
 static PyObject *copy_frame_from_greenlet(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyObject *greenlet = NULL;
     SerializationOptions options;
+    int exclude_invariants_int = 0;
     
-    static char *kwlist[] = {"greenlet", "exclude_locals", "sizehint", "serialize", "exclude_dead_locals", NULL};
+    static char *kwlist[] = {"greenlet", "exclude_locals", "sizehint", "serialize", "exclude_dead_locals", "exclude_invariants", NULL};
     int serialize = 0;
     PyObject* sizehint_obj = NULL;
     int exclude_dead_locals = 1;
     
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OOpp", kwlist, 
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OOppp", kwlist, 
                                     &greenlet, &options.exclude_locals, 
-                                    &sizehint_obj, &serialize, &exclude_dead_locals)) {
+                                    &sizehint_obj, &serialize, &exclude_dead_locals, &exclude_invariants_int)) {
         return NULL;
     }
-    
     options.serialize = (serialize != 0);
     options.exclude_dead_locals = (exclude_dead_locals != 0);
+    options.exclude_invariants = (exclude_invariants_int != 0);
     if (!parse_sizehint(sizehint_obj, options.sizehint)) {
         return NULL;
     }
