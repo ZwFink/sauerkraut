@@ -26,4 +26,4 @@ jobs:
 
       - name: Run tests
         run: |
-          docker run --rm sauerkraut:test python3 -m test.test 
+          docker run --rm sauerkraut:test python3 /sauerkraut/test/test.py
