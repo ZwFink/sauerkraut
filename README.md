@@ -104,9 +104,9 @@ skt.run_frame(code)
 Sauerkraut can be installed in two ways:
 
 ### 1. Direct Installation
-First, install the required fork of greenlet:
+First, install the required packages:
 ```bash
-python3 -m pip install git+https://github.com/ZwFink/greenlet.git
+python3 -m pip install -r requirements.txt
 ```
 
 Then install sauerkraut:
