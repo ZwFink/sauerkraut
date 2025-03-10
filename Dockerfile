@@ -6,28 +6,36 @@ RUN ln -fs /usr/share/zoneinfo/UTC /etc/localtime && \
     echo "Etc/UTC" > /etc/timezone && \
     apt-get update && \
     apt-get install -y python3 gnupg curl software-properties-common cmake vim git zip wget unzip xz-utils autoconf automake libssl-dev unzip libcurl4-openssl-dev xz-utils patch bzip2 gfortran file \
-      build-essential gdb lcov pkg-config \
-      libbz2-dev libffi-dev libgdbm-dev libgdbm-compat-dev liblzma-dev \
-      libncurses5-dev libreadline6-dev libsqlite3-dev libssl-dev \
-      lzma lzma-dev tk-dev uuid-dev zlib1g-dev libmpdec-dev && \
+      build-essential gdb lcov pkg-config && \
     apt-get upgrade -y && \
     apt-get clean
-RUN \
-	git clone https://github.com/python/cpython.git && \
-	cd cpython && \
-	git checkout v3.13.1 && \
-	./configure --with-pydebug --enable-shared --prefix=/cpython-install && \
-	make install -j4
 
-env LD_LIBRARY_PATH=/cpython-install/lib:$LD_LIBRARY_PATH
-env PATH=/cpython-install/bin:$PATH
+# Install Miniconda and create Python 3.13 environment
+RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh && \
+    bash /tmp/miniconda.sh -b -p /opt/conda && \
+    rm /tmp/miniconda.sh
 
+# Add conda to path and initialize
+ENV PATH=/opt/conda/bin:$PATH
+RUN conda init bash && \
+    conda create -n sauerkraut python=3.13 -y && \
+    echo "conda activate sauerkraut" >> ~/.bashrc
+
+# Make the conda environment available in PATH
+ENV PATH=/opt/conda/envs/sauerkraut/bin:$PATH
+
+# Install sauerkraut
 RUN \
-	git clone https://github.com/ZwFink/greenlet.git /greenlet &&\
-	cd /greenlet && python3 -m pip install . && \
-	git clone https://github.com/ZwFink/sauerkraut.git /sauerkraut &&\
-	python3 -m pip install numpy && \
-	cd /sauerkraut && python3 -m pip install .
+    git clone https://github.com/ZwFink/sauerkraut.git /sauerkraut \
+    && cd /sauerkraut && python3 -m pip install -r requirements.txt \
+    && python3 -m pip install .
+
+# Create entrypoint script
+RUN echo '#!/bin/bash\n\
+source /opt/conda/etc/profile.d/conda.sh\n\
+conda activate sauerkraut\n\
+exec "$@"' > /entrypoint.sh && \
+    chmod +x /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["/bin/bash"]
