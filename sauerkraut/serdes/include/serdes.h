@@ -19,20 +19,20 @@ namespace serdes {
     class SerializationArgs {
         public:
         std::optional<utils::py::LocalExclusionBitmask> exclude_locals;
-        bool exclude_invariants = false;
+        bool exclude_immutables = false;
         size_t sizehint;
 
-        SerializationArgs(std::optional<utils::py::LocalExclusionBitmask> exclude_locals, bool exclude_invariants, size_t sizehint) :
-            exclude_locals(exclude_locals), exclude_invariants(exclude_invariants), sizehint(sizehint) {}
-        SerializationArgs() : exclude_locals(std::nullopt), exclude_invariants(false), sizehint(SERIALIZATION_SIZEHINT_DEFAULT) {}
-        SerializationArgs(size_t sizehint) : exclude_locals(std::nullopt), exclude_invariants(false), sizehint(sizehint) {}
+        SerializationArgs(std::optional<utils::py::LocalExclusionBitmask> exclude_locals, bool exclude_immutables, size_t sizehint) :
+            exclude_locals(exclude_locals), exclude_immutables(exclude_immutables), sizehint(sizehint) {}
+        SerializationArgs() : exclude_locals(std::nullopt), exclude_immutables(false), sizehint(SERIALIZATION_SIZEHINT_DEFAULT) {}
+        SerializationArgs(size_t sizehint) : exclude_locals(std::nullopt), exclude_immutables(false), sizehint(sizehint) {}
 
         void set_exclude_locals(std::optional<utils::py::LocalExclusionBitmask> exclude_locals) {
             this->exclude_locals = exclude_locals;
         }
 
-        void set_exclude_invariants(bool exclude_invariants) {
-            this->exclude_invariants = exclude_invariants;
+        void set_exclude_immutables(bool exclude_immutables) {
+            this->exclude_immutables = exclude_immutables;
         }
 
         void set_sizehint(size_t sizehint) {
@@ -201,7 +201,7 @@ namespace serdes {
 
         std::vector<unsigned char> co_code_adaptive;
 
-        bool invariants_included() {
+        bool immutables_included() {
             if(co_consts.borrow()) {
                 return true;
             }
@@ -237,7 +237,7 @@ namespace serdes {
             auto co_name_ser = (NULL != obj->co_name) ?
                 std::optional{po_serializer.serialize(builder, obj->co_name)} : std::nullopt;
             
-            // Only serialize other fields if we're not excluding invariants
+            // Only serialize other fields if we're not excluding immutables
             std::optional<offsets::PyObjectOffset> co_consts_ser = std::nullopt;
             std::optional<offsets::PyObjectOffset> co_names_ser = std::nullopt;
             std::optional<offsets::PyObjectOffset> co_exceptiontable_ser = std::nullopt;
@@ -248,7 +248,7 @@ namespace serdes {
             std::optional<offsets::PyObjectOffset> co_linetable_ser = std::nullopt;
             std::optional<flatbuffers::Offset<flatbuffers::Vector<uint8_t>>> co_code_adaptive_ser = std::nullopt;
             
-            if (!ser_args.exclude_invariants) {
+            if (!ser_args.exclude_immutables) {
                 co_consts_ser = (NULL != obj->co_consts) ? 
                     std::optional{po_serializer.serialize(builder, obj->co_consts)} : std::nullopt;
 
@@ -273,7 +273,7 @@ namespace serdes {
                 co_linetable_ser = (NULL != obj->co_linetable) ?
                     std::optional{po_serializer.serialize(builder, obj->co_linetable)} : std::nullopt;
                 
-                // Only serialize bytecode if we're not excluding invariants
+                // Only serialize bytecode if we're not excluding immutables
                 co_code_adaptive_ser = serialize_bitcode(builder, obj);
             }
 
@@ -289,8 +289,8 @@ namespace serdes {
                 code_builder.add_co_exceptiontable(co_exceptiontable_ser.value());
             }
 
-            // Only add flags and other numeric properties if not excluding invariants
-            if (!ser_args.exclude_invariants) {
+            // Only add flags and other numeric properties if not excluding immutables
+            if (!ser_args.exclude_immutables) {
                 code_builder.add_co_flags(obj->co_flags);
 
                 code_builder.add_co_argcount(obj->co_argcount);
@@ -330,7 +330,7 @@ namespace serdes {
                 code_builder.add_co_linetable(co_linetable_ser.value());
             }
             
-            // Only add bytecode if we're not excluding invariants
+            // Only add bytecode if we're not excluding immutables
             if (co_code_adaptive_ser) {
                 code_builder.add_co_code_adaptive(co_code_adaptive_ser.value());
             }
@@ -458,7 +458,7 @@ namespace serdes {
             offsets::PyObjectOffset f_globals_ser;
 
             f_executable_ser = code_serializer.serialize(builder, (PyCodeObject*)obj.f_executable.bits, ser_args);
-            if(!ser_args.exclude_invariants) {
+            if(!ser_args.exclude_immutables) {
                 f_func_obj_ser = po_serializer.serialize(builder, obj.f_funcobj);
                 f_globals_ser = po_serializer.serialize_dill(builder, obj.f_globals);
             }
@@ -474,7 +474,7 @@ namespace serdes {
             if(f_locals_ser) {
                 frame_builder.add_f_locals(f_locals_ser.value());
             }
-            if(!ser_args.exclude_invariants) {
+            if(!ser_args.exclude_immutables) {
                 frame_builder.add_f_funcobj(f_func_obj_ser);
                 frame_builder.add_f_globals(f_globals_ser);
             }
