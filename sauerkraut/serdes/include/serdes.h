@@ -419,31 +419,45 @@ namespace serdes {
             return stack_offset;
         }
         template<typename Builder>
-        flatbuffers::Offset<flatbuffers::Vector<offsets::PyObjectOffset>> serialize_fast_locals_plus(Builder &builder, sauerkraut::PyInterpreterFrame &obj, serdes::SerializationArgs& ser_args) {
+        std::pair<flatbuffers::Offset<flatbuffers::Vector<offsets::PyObjectOffset>>, 
+                  flatbuffers::Offset<flatbuffers::Vector<uint8_t>>> 
+        serialize_fast_locals_plus(Builder &builder, sauerkraut::PyInterpreterFrame &obj, serdes::SerializationArgs& ser_args) {
             auto n_locals = utils::py::get_code_nlocals((PyCodeObject*)obj.f_executable.bits);
             auto exclude_local_bitmask = ser_args.exclude_locals.value_or(std::vector<bool>(n_locals, false));
             std::vector<offsets::PyObjectOffset> localsplus;
-            localsplus.reserve(n_locals);
+            
+            std::vector<uint8_t> uint8_bitmask;
+            uint8_bitmask.reserve(n_locals);
+            int non_excluded_count = 0;
+            for (int i = 0; i < n_locals; i++) {
+                if((PyObject*)obj.localsplus[i].bits == NULL || exclude_local_bitmask[i]) {
+                    // a local can be NULL if it has not been initialized for the first time
+                    uint8_bitmask.push_back(1);
+                } else {
+                    uint8_bitmask.push_back(0);
+                    non_excluded_count++;
+                }
+            }
+            
+            localsplus.reserve(non_excluded_count);
 
+            // Only serialize non-excluded locals
             for(int i = 0; i < n_locals; i++) {
                 auto local = obj.localsplus[i];
                 PyObject *local_pyobj = (PyObject*)local.bits;
 
                 if(NULL == local_pyobj || exclude_local_bitmask[i]) {
-                    // If the local is NULL or excluded, we need to still serialize some
-                    // representation of it, so we can assign frame.locals[i] = deserialized_locals[i]
-                    // Otherwise, we will create problems by shifting our locals
-                    auto local_ser = po_serializer.serialize(builder, Py_None);
-                    localsplus.push_back(local_ser);
-
                     continue;
                 }
 
                 auto local_ser = po_serializer.serialize(builder, local_pyobj);
                 localsplus.push_back(local_ser);
             }
+            
             auto localsplus_offset = builder.CreateVector(localsplus);
-            return localsplus_offset;
+            auto bitmask_offset = builder.CreateVector(uint8_bitmask);
+            
+            return std::make_pair(localsplus_offset, bitmask_offset);
         }
 
         public:
@@ -466,7 +480,7 @@ namespace serdes {
             auto f_locals_ser = (NULL != obj.f_locals) ? 
                 std::optional{po_serializer.serialize(builder, obj.f_locals)} : std::nullopt;
 
-            auto fast_locals_ser = serialize_fast_locals_plus(builder, obj, ser_args);
+            auto fast_locals_result = serialize_fast_locals_plus(builder, obj, ser_args);
             auto stack_ser = serialize_stack(builder, obj, stack_depth);
 
             pyframe_buffer::PyInterpreterFrameBuilder frame_builder(builder);
@@ -483,7 +497,8 @@ namespace serdes {
             frame_builder.add_instr_offset(utils::py::get_instr_offset<utils::py::Units::Bytes>(obj.frame_obj));
             frame_builder.add_return_offset(obj.return_offset);
             frame_builder.add_owner(obj.owner);
-            frame_builder.add_locals_plus(fast_locals_ser);
+            frame_builder.add_locals_plus(fast_locals_result.first);
+            frame_builder.add_locals_exclusion_bitmask(fast_locals_result.second);
             frame_builder.add_stack(stack_ser);
 
             return frame_builder.Finish();
@@ -509,9 +524,20 @@ namespace serdes {
             deser.owner = obj->owner();
 
             auto localsplus = obj->locals_plus();
-            deser.localsplus.reserve(localsplus->size());
-            for(auto local : *localsplus) {
-                deser.localsplus.push_back(po_serializer.deserialize(local));
+            auto exclusion_bitmask = obj->locals_exclusion_bitmask();
+            
+            int total_locals = exclusion_bitmask->size();
+            deser.localsplus.reserve(total_locals);
+            
+            int localsplus_idx = 0;
+            for(int i = 0; i < total_locals; i++) {
+                if(exclusion_bitmask->Get(i) != 0) {
+                    // This local was excluded, use Py_None
+                    deser.localsplus.push_back(Py_None);
+                } else {
+                    // This local was included, get it from the serialized data
+                    deser.localsplus.push_back(po_serializer.deserialize(localsplus->Get(localsplus_idx++)));
+                }
             }
 
             auto stack = obj->stack();
