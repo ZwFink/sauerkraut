@@ -183,7 +183,7 @@ def exclude_locals_current_frame_fn(c, exclude_locals=None):
 def test_exclude_locals_greenlet():
     gr = greenlet.greenlet(exclude_locals_greenletfn)
     gr.switch(13)
-    serframe = skt.copy_frame_from_greenlet(gr, serialize=True, exclude_locals={'a'}, sizehint=500, exclude_invariants=True)
+    serframe = skt.copy_frame_from_greenlet(gr, serialize=True, exclude_locals={'a'}, sizehint=500, exclude_immutables=True)
     deserframe = skt.deserialize_frame(serframe)
     try:
         res = skt.run_frame(deserframe)
@@ -195,7 +195,7 @@ def test_exclude_locals_greenlet():
 
     gr2 = greenlet.greenlet(exclude_locals_greenletfn)
     gr2.switch(13)
-    serframe = skt.copy_frame_from_greenlet(gr2, serialize=True, exclude_locals=['c', 'b'], exclude_invariants=True)
+    serframe = skt.copy_frame_from_greenlet(gr2, serialize=True, exclude_locals=['c', 'b'], exclude_immutables=True)
     deserframe = skt.deserialize_frame(serframe)
     result = skt.run_frame(deserframe, replace_locals={'c': 100, 'b': 35})
     assert result == 136
