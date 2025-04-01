@@ -218,10 +218,10 @@ namespace serdes {
         PyCodeObjectSerializer po_serializer;
         template<typename Builder>
         flatbuffers::Offset<flatbuffers::Vector<uint8_t>> serialize_bitcode(Builder &builder, PyCodeObject *code) {
-            auto n_instructions = Py_SIZE(code);
-            auto total_size_bytes = n_instructions * sizeof(sauerkraut::PyBitcodeInstruction);
             pyobject_strongref code_instrs = pyobject_strongref::steal(PyCode_GetCode(code));
-            char *bitcode = PyBytes_AsString(code_instrs.borrow());
+            Py_ssize_t total_size_bytes = 0;
+            char *bitcode = nullptr;
+            PyBytes_AsStringAndSize(code_instrs.borrow(), &bitcode, &total_size_bytes);
 
             auto bytes = builder.CreateVector((const uint8_t*) bitcode, total_size_bytes);
             return bytes;
