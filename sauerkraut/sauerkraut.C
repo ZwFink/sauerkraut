@@ -313,6 +313,7 @@ PyFrameObject *create_copied_frame(py_weakref<PyThreadState> tstate,
     new_frame_ref->f_globals = to_copy->f_globals;
     new_frame_ref->f_builtins = to_copy->f_builtins;
     new_frame_ref->f_locals = to_copy->f_locals;
+    new_frame_ref->return_offset = to_copy->return_offset;
     new_frame_ref->frame_obj = new_frame;
     #if SAUERKRAUT_PY314
     new_frame->f_frame->stackpointer = NULL;
@@ -951,14 +952,26 @@ static PyObject *run_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
 
 static PyObject *serialize_frame(PyObject *self, PyObject *args, PyObject *kwargs) {
     PyObject *capsule;
-    SerializationOptions options;
-    
+    PyObject *sizehint_obj = NULL;
+    Py_ssize_t sizehint_val = 0; 
+
     static char *kwlist[] = {"frame", "sizehint", NULL};
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|O", kwlist, &capsule, &options.sizehint)) {
+    // Parse capsule and sizehint_obj (as PyObject*)
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|O", kwlist, &capsule, &sizehint_obj)) {
         return NULL;
     }
 
-    serdes::SerializationArgs ser_args = options.to_ser_args();
+    if (!parse_sizehint(sizehint_obj, sizehint_val)) {
+        return NULL;
+    }
+
+    serdes::SerializationArgs ser_args; 
+    if (sizehint_val > 0) {
+        ser_args.set_sizehint(sizehint_val);
+    } else if (sizehint_obj != NULL) {
+         PyErr_SetString(PyExc_ValueError, "sizehint must be a positive integer");
+         return NULL;
+    }
     return _serialize_frame_from_capsule(capsule, ser_args);
 }
 
